@@ -23,6 +23,14 @@ RUN pip install --no-cache-dir \
         "openai" \
         --constraint "${CONSTRAINTS}"
 
+# ML risk layer (ml_score DAG runs `python -m src.ml.train` in a subprocess).
+# Installed without the Airflow constraints file (scikit-learn isn't pinned
+# there); numpy is kept <2 to stay compatible with Airflow 2.8's pinned stack.
+RUN pip install --no-cache-dir \
+        "scikit-learn==1.4.2" \
+        "joblib>=1.3.0" \
+        "numpy<2"
+
 # dbt in an isolated virtualenv (invoked by the dbt_transform DAG via $DBT_BIN).
 # Isolation means dbt's dependency pins can never break the Airflow runtime.
 # /opt is root-owned, so build the venv as root, then restore the airflow user.

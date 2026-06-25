@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import html
+from datetime import datetime, timezone
 
+import pandas as pd
 import streamlit as st
 
+from src.dashboard.db import fetch_ml_latest_run
 from src.dashboard.i18n import t
 from src.dashboard.rules_manager import load_rules
 from src.dashboard.scenario_catalog import load_scenario_catalog
@@ -13,6 +16,20 @@ from src.dashboard.scenario_catalog import load_scenario_catalog
 
 def _fmt_eur(value: float) -> str:
     return f"{float(value):,.0f} EUR"
+
+
+def _humanize_age(ts) -> str | None:
+    if ts is None or pd.isna(ts):
+        return None
+    ts = pd.Timestamp(ts)
+    if ts.tzinfo is None:
+        ts = ts.tz_localize("UTC")
+    age = int((pd.Timestamp(datetime.now(timezone.utc)) - ts).total_seconds())
+    if age < 3600:
+        return t("rm.ago_m", n=max(age // 60, 0))
+    if age < 86400:
+        return t("rm.ago_h", n=age // 3600)
+    return t("rm.ago_d", n=age // 86400)
 
 
 def _scenario_view(scenario: dict, rules: dict) -> dict:
@@ -136,6 +153,64 @@ def _render_card(scenario: dict, rules: dict) -> None:
     )
 
 
+def _render_ml_card() -> None:
+    """9th, always-on scenario: the ML risk layer (model-driven, no fixed threshold).
+
+    Reads live stats from the latest training run; details live on Risk Models.
+    """
+    run = fetch_ml_latest_run()
+    outlier_pct = float(run.get("contamination") or 0.05) * 100 if run else 5.0
+
+    if run:
+        n_anom = int(run.get("n_anomalies") or 0)
+        n_samples = int(run.get("n_samples") or 0)
+        last_run = t("scenarios.ml.lastrun_val", anomalies=f"{n_anom:,}", samples=f"{n_samples:,}")
+        roc = run.get("roc_auc")
+        quality = f"{float(roc):.3f}" if roc is not None and not pd.isna(roc) else "—"
+        age = _humanize_age(run.get("trained_at"))
+        refreshed = age if age else t("scenarios.ml.p_none")
+        n_features = int(run.get("n_features") or 12)
+    else:
+        last_run = t("scenarios.ml.p_none")
+        quality = "—"
+        refreshed = t("scenarios.ml.p_none")
+        n_features = 12
+
+    params = [
+        ("scenarios.ml.p_model", t("scenarios.ml.model")),
+        ("scenarios.ml.p_features", str(n_features)),
+        ("scenarios.ml.p_outlier", f"{outlier_pct:.0f}%"),
+        ("scenarios.ml.p_lastrun", last_run),
+        ("scenarios.ml.p_quality", quality),
+        ("scenarios.ml.p_refreshed", refreshed),
+    ]
+    params_html = "".join(
+        f'<div class="scn-param"><span class="scn-pk">{html.escape(t(lk))}</span>'
+        f'<span class="scn-pv">{html.escape(str(pv))}</span></div>'
+        for lk, pv in params
+    )
+
+    st.markdown(
+        f"""
+        <div class="scn-card scn-card-ml">
+          <div class="scn-head">
+            <span class="scn-title">{html.escape(t('scenarios.ml.title'))}</span>
+            <span class="scn-badge scn-ml">{html.escape(t('scenarios.ml.model_badge'))}</span>
+            <span class="scn-badge scn-on">{html.escape(t('scenarios.ml.status'))}</span>
+          </div>
+          <div class="scn-desc">{html.escape(t('scenarios.ml.desc'))}</div>
+          <div class="scn-detect">{html.escape(t('scenarios.ml.detect', pct=f'{outlier_pct:.0f}'))}</div>
+          <div class="scn-meta">
+            <span class="scn-chip">{html.escape(t('scenarios.window'))}: {html.escape(t('scenarios.ml.window'))}</span>
+            <span class="scn-chip">{html.escape(t('scenarios.ml.details_hint'))}</span>
+          </div>
+          <div class="scn-params">{params_html}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_scenarios_page() -> None:
     st.header(t("scenarios.title"))
     st.caption(t("scenarios.intro"))
@@ -147,6 +222,9 @@ def render_scenarios_page() -> None:
     for idx, scenario in enumerate(scenarios):
         with cols[idx % 2]:
             _render_card(scenario, rules)
+    # 9th, always-on ML scenario (model-driven; no injector, no alerts written).
+    with cols[len(scenarios) % 2]:
+        _render_ml_card()
 
     st.divider()
     st.subheader(t("rule_builder.propose_title"))

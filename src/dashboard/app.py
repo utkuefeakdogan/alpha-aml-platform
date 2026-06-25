@@ -19,6 +19,7 @@ from src.dashboard.freesql import render_freesql_page
 from src.dashboard.i18n import render_language_selector, t
 from src.dashboard.investigation import render_investigation_page
 from src.dashboard.onboarding import render_onboarding_page
+from src.dashboard.risk_models import render_risk_models_page
 from src.dashboard.rule_builder_ui import render_scenarios_page
 from src.dashboard.sar_archive import render_sar_archive_page
 from src.dashboard.styles import DARK_THEME_CSS
@@ -121,6 +122,7 @@ def main() -> None:
         "Investigation",
         "SAR Archive",
         "Scenarios",
+        "Risk Models",
         "Data Quality",
         "System Health",
         "SQL Explorer",
@@ -155,6 +157,7 @@ def main() -> None:
         "Overview": render_onboarding_page,
         "Monitoring": page_monitoring,
         "Scenarios": render_scenarios_page,
+        "Risk Models": render_risk_models_page,
         "Data Quality": page_data_quality,
         "System Health": render_system_health_page,
         "SQL Explorer": render_freesql_page,

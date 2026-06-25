@@ -942,6 +942,73 @@ def fetch_sar_context(customer_id: str) -> dict:
     }
 
 
+@st.cache_data(ttl=_TTL_FAST, show_spinner=False)
+def fetch_ml_latest_run() -> dict:
+    """Most recent ML training run with its evaluation metrics (JSONB columns
+    arrive as native dict/list via psycopg2)."""
+    try:
+        df = query_df(
+            "SELECT * FROM aml.ml_model_runs ORDER BY trained_at DESC LIMIT 1"
+        )
+        return df.iloc[0].to_dict() if not df.empty else {}
+    except Exception:
+        return {}
+
+
+@st.cache_data(ttl=_TTL_FAST, show_spinner=False)
+def fetch_ml_scores() -> pd.DataFrame:
+    """Full score snapshot (a few thousand active customers) for distribution charts."""
+    try:
+        return query_df(
+            """
+            SELECT anomaly_score, triage_score, is_anomaly, rule_flagged
+            FROM aml.ml_customer_scores
+            """
+        )
+    except Exception:
+        return pd.DataFrame()
+
+
+def fetch_ml_top_anomalies(limit: int = 20, by: str = "anomaly_score") -> pd.DataFrame:
+    order_col = "triage_score" if by == "triage_score" else "anomaly_score"
+    return query_df(
+        f"""
+        SELECT s.customer_id, c.name AS customer_name,
+               s.anomaly_score, s.anomaly_rank, s.is_anomaly,
+               s.triage_score, s.rule_flagged,
+               s.txn_count_30d, s.volume_30d, s.distinct_receivers_30d,
+               s.max_txn_30d, s.kyc_risk_score
+        FROM aml.ml_customer_scores s
+        LEFT JOIN aml.customers c ON c.customer_id = s.customer_id
+        ORDER BY s.{order_col} DESC NULLS LAST
+        LIMIT :limit
+        """,
+        {"limit": limit},
+    )
+
+
+@st.cache_data(ttl=_TTL_FAST, show_spinner=False)
+def fetch_ml_overlap() -> dict:
+    """Rule-engine vs ML-anomaly agreement counts (confusion-style 2x2)."""
+    try:
+        row = query_df(
+            """
+            SELECT
+              COUNT(*) AS total,
+              COUNT(*) FILTER (WHERE is_anomaly AND rule_flagged) AS both,
+              COUNT(*) FILTER (WHERE is_anomaly AND NOT rule_flagged) AS ml_only,
+              COUNT(*) FILTER (WHERE NOT is_anomaly AND rule_flagged) AS rule_only,
+              COUNT(*) FILTER (WHERE NOT is_anomaly AND NOT rule_flagged) AS neither
+            FROM aml.ml_customer_scores
+            """
+        ).iloc[0]
+        return {
+            k: int(row[k]) for k in ("total", "both", "ml_only", "rule_only", "neither")
+        }
+    except Exception:
+        return {}
+
+
 def insert_sar_report(
     report_id: str,
     account_id_hash: str,

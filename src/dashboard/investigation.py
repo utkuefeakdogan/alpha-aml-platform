@@ -32,14 +32,23 @@ def _mask_identity(val) -> str:
     return s[:3] + "****" + s[-2:]
 
 
-def _render_top_high_risk_alerts(on_investigate) -> None:
-    st.markdown(f"#### {t('investigation.top_alerts')}")
-    st.caption(t("investigation.top_alerts_caption"))
+def _render_top_high_risk_alerts(on_investigate, *, show_header: bool = True) -> None:
+    if show_header:
+        st.markdown(f"#### {t('investigation.top_alerts')}")
+        st.caption(t("investigation.top_alerts_caption"))
     try:
         top = fetch_top_open_alerts(limit=10)
         render_open_alerts_table(top, on_investigate, key_prefix="top_risk")
     except Exception as exc:
         st.warning(t("investigation.top_alerts_error", error=str(exc)))
+
+
+def _render_other_high_risk_collapsed(on_investigate) -> None:
+    """When investigating a specific target, keep the queue available but tucked away."""
+    st.divider()
+    with st.expander(t("investigation.other_high_risk"), expanded=False):
+        st.caption(t("investigation.top_alerts_caption"))
+        _render_top_high_risk_alerts(on_investigate, show_header=False)
 
 
 def _render_customer_identity_tab(customer_id: str, profile: dict) -> None:
@@ -293,8 +302,6 @@ def render_investigation_page(
         key="inv_search",
     )
 
-    _render_top_high_risk_alerts(on_investigate_alert)
-
     search = st.session_state.get("inv_search", "")
     mode = "idle"
     target_txn = txn_id
@@ -321,11 +328,13 @@ def render_investigation_page(
         mode = "alert"
 
     if mode == "idle":
+        _render_top_high_risk_alerts(on_investigate_alert)
         st.info(t("investigation.idle"))
         return
 
     if mode == "customer" and customer_id:
         _render_customer_mode(customer_id, on_investigate_alert)
+        _render_other_high_risk_collapsed(on_investigate_alert)
         return
 
     if not target_txn:
@@ -379,3 +388,5 @@ def render_investigation_page(
     if st.session_state.get("sar_text"):
         st.subheader(t("investigation.generated_sar"))
         st.text_area(t("investigation.sar_document"), st.session_state.sar_text, height=280)
+
+    _render_other_high_risk_collapsed(on_investigate_alert)

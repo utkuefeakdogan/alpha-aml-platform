@@ -80,7 +80,7 @@ Thresholds live in [`configs/rules.json`](configs/rules.json) and the scenario c
 
 ### Dashboard pages
 
-`Overview` (recruiter-facing story + live KPIs) · `Monitoring` (alerts, risk distribution, live feed) · `Investigation` (drill into an alert or a customer 360) · `SAR Archive` · `Scenarios` (read-only typology catalogue with live thresholds) · `Data Quality` · `System Health` (pipeline freshness, Airflow DAG health, source-consistency checks, throughput, storage) · `SQL Explorer` (read-only, restricted DB role).
+`Overview` (recruiter-facing story + live KPIs) · `Monitoring` (alerts, risk distribution, live feed) · `Investigation` (drill into an alert or a customer 360) · `SAR Archive` · `Scenarios` (read-only typology catalogue with live thresholds) · `Risk Models` (ML anomaly scores, ROC/PR curves, feature importance, rules-vs-ML overlap) · `Data Quality` · `System Health` (pipeline freshness, Airflow DAG health, source-consistency checks, throughput, storage) · `SQL Explorer` (read-only, restricted DB role).
 
 ---
 
@@ -94,6 +94,7 @@ Thresholds live in [`configs/rules.json`](configs/rules.json) and the scenario c
 | Transformation | dbt 1.7 (medallion: staging → gold) |
 | Orchestration | Apache Airflow 2.8 |
 | Serving | Streamlit (SQLAlchemy), Altair |
+| Machine learning | scikit-learn (Isolation Forest, Gradient Boosting), joblib |
 | GenAI | OpenAI (optional; mock fallback) |
 | Packaging / ops | Docker Compose, profiles, Makefile |
 
@@ -150,7 +151,7 @@ alpha-aml-platform/
 
 **Data Analysis** — a tested SQL warehouse, business KPIs (alert volumes, risk-band distribution, daily fraud summaries, customer 360), an interactive compliance dashboard, and a read-only SQL explorer — framed around real AML/banking metrics (SAR, KYC, PEP, typologies).
 
-**Data Science (on the roadmap)** — engineered behavioral features already exist in the gold layer (`txn_count_30d`, `volume_30d`, `distinct_receivers_30d`, `flag_count_30d`, …) ready to feed an **unsupervised anomaly model (Isolation Forest)** and a **supervised alert-triage classifier** that will be benchmarked (precision/recall/ROC-AUC) against the rule baseline.
+**Data Science** — a live ML risk layer (`src/ml/`, scored every 6h by the `ml_score` Airflow DAG): engineered 30-day behavioral features feed an **unsupervised Isolation Forest** (anomaly scoring for every active customer) and a **supervised Gradient Boosting triage** model trained on the rule-engine alert label and evaluated with stratified cross-validation (ROC-AUC, PR-AUC, feature importance) — surfaced in the `Risk Models` dashboard page alongside a rules-vs-ML overlap analysis. Labels are scarce by design (alerts are budget-capped), so metrics are reported honestly with their sample sizes and improve as the system accumulates alerts.
 
 ---
 
@@ -165,13 +166,13 @@ alpha-aml-platform/
 
 ## Roadmap
 
+- [x] ML layer: Isolation Forest anomaly detection + supervised triage model, surfaced in a "Risk Models" dashboard page
 - [ ] Automated test suite (pytest) + GitHub Actions CI (lint, tests, `dbt parse`)
-- [ ] ML layer: Isolation Forest anomaly detection + supervised triage model, surfaced in a "Risk Models" dashboard page
+- [ ] Analyst "Insights" page (cohort / trend / false-positive analysis)
 - [ ] Public HTTPS live demo
-- [ ] Analyst "Insights" notebook (cohort / trend / false-positive analysis)
 
 ---
 
 ## Notes
 
-This is a personal portfolio project built to showcase data engineering, analytics and (soon) ML skills in the AML/fraud domain. All data is synthetic. Detection is currently **rule/threshold-based** (an ML layer is planned, see roadmap). See [`EVALUATION.md`](EVALUATION.md) and [`efe_system.md`](efe_system.md) for a deep architecture and operations walkthrough.
+This is a personal portfolio project built to showcase data engineering, analytics and ML skills in the AML/fraud domain. All data is synthetic. Detection combines a **deterministic rule engine** (real-time, in Spark) with an **ML risk layer** (Isolation Forest anomaly + supervised triage). See [`EVALUATION.md`](EVALUATION.md) and [`efe_system.md`](efe_system.md) for a deep architecture and operations walkthrough.

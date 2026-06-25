@@ -570,6 +570,8 @@ DARK_THEME_CSS = """
     }
     .scn-on { background: rgba(34, 197, 94, 0.14); color: #16a34a; border: 1px solid rgba(34,197,94,0.35); }
     .scn-off { background: rgba(148, 163, 184, 0.14); color: var(--text-muted); border: 1px solid var(--border); }
+    .scn-ml { background: rgba(56, 189, 248, 0.16); color: var(--accent); border: 1px solid rgba(56,189,248,0.45); }
+    .scn-card-ml { border-color: rgba(56,189,248,0.45); box-shadow: 0 0 0 1px rgba(56,189,248,0.12), var(--shadow-card); }
     .scn-desc { color: var(--text-body); font-size: 0.86rem; line-height: 1.4; }
     .scn-detect {
         color: var(--text-strong);
