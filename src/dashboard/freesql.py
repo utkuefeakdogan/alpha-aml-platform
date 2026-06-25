@@ -150,9 +150,38 @@ _EXAMPLE_CATEGORIES: dict[str, list[tuple[str, str]]] = {
             "ORDER BY volume_30d DESC NULLS LAST LIMIT 15",
         ),
     ],
+    "ml": [
+        (
+            "sql.ex.ml.top_anomalies",
+            "SELECT customer_id, anomaly_score, anomaly_rank,\n"
+            "       triage_score, rule_flagged\n"
+            "FROM aml.ml_customer_scores\n"
+            "ORDER BY anomaly_score DESC LIMIT 20",
+        ),
+        (
+            "sql.ex.ml.ml_only",
+            "SELECT customer_id, anomaly_score, triage_score,\n"
+            "       txn_count_30d, volume_30d\n"
+            "FROM aml.ml_customer_scores\n"
+            "WHERE is_anomaly = true AND rule_flagged = false\n"
+            "ORDER BY anomaly_score DESC LIMIT 20",
+        ),
+        (
+            "sql.ex.ml.overlap",
+            "SELECT rule_flagged, is_anomaly, COUNT(*) AS customers\n"
+            "FROM aml.ml_customer_scores\n"
+            "GROUP BY rule_flagged, is_anomaly ORDER BY customers DESC",
+        ),
+        (
+            "sql.ex.ml.runs",
+            "SELECT model_version, trained_at, n_samples, n_anomalies,\n"
+            "       roc_auc, pr_auc, supervised_trained\n"
+            "FROM aml.ml_model_runs ORDER BY trained_at DESC LIMIT 10",
+        ),
+    ],
 }
 
-_CATEGORY_ORDER = ["alerts", "transactions", "customers", "sar", "pipeline"]
+_CATEGORY_ORDER = ["alerts", "transactions", "customers", "sar", "pipeline", "ml"]
 
 _DEFAULT_SQL = (
     "SELECT rule_name, COUNT(*) AS alerts\n"

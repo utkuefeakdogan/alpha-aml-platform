@@ -17,6 +17,7 @@ from src.dashboard.db import (
     fetch_airflow_dag_health,
     fetch_alerts_by_rule_24h,
     fetch_consistency_checks,
+    fetch_ml_latest_run,
     fetch_system_health,
     fetch_table_counts,
 )
@@ -30,6 +31,8 @@ _HEALTH_TABLES = (
     "aml.customers",
     "aml.customer_acquisition_log",
     "aml.pipeline_metrics",
+    "aml.ml_customer_scores",
+    "aml.ml_model_runs",
 )
 
 
@@ -160,7 +163,19 @@ def _render_service_cards(h: dict, dags: pd.DataFrame) -> None:
         t("health.last_sar", ago=_humanize(sar_age)),
     )
 
-    cards = [ingest_card, sched_card, dbt_card, acq_card, sar_card]
+    # 6. ML risk layer (ml_score DAG; re-scores active customers every 6h).
+    ml_run = fetch_ml_latest_run()
+    ml_age = _age_seconds(ml_run.get("trained_at")) if ml_run else None
+    ml_status = _status_from_age(ml_age, ok_max=32400, stale_max=129600)  # 9h / 36h
+    ml_anom = int(ml_run.get("n_anomalies") or 0) if ml_run else 0
+    ml_card = _service_card(
+        t("health.svc.ml"),
+        ml_status,
+        t("health.svc.ml_val", n=ml_anom),
+        t("health.last_scored", ago=_humanize(ml_age)),
+    )
+
+    cards = [ingest_card, sched_card, dbt_card, acq_card, sar_card, ml_card]
     cols = st.columns(len(cards))
     for col, card in zip(cols, cards):
         col.markdown(card, unsafe_allow_html=True)
