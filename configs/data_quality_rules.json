@@ -1,0 +1,60 @@
+{
+  "rules": [
+    {
+      "id": "DQ-001",
+      "name": "Sender identity → single country",
+      "description": "A sender_identity_no must always map to exactly one sender_country across all transactions.",
+      "severity": "high",
+      "category": "party_consistency"
+    },
+    {
+      "id": "DQ-002",
+      "name": "Sender identity → single name",
+      "description": "A sender_identity_no must always map to exactly one sender_name (no alias drift).",
+      "severity": "high",
+      "category": "party_consistency"
+    },
+    {
+      "id": "DQ-003",
+      "name": "Receiver identity → single country",
+      "description": "A receiver_identity_no must always map to exactly one receiver_country.",
+      "severity": "high",
+      "category": "party_consistency"
+    },
+    {
+      "id": "DQ-004",
+      "name": "Receiver identity → single name",
+      "description": "A receiver_identity_no must always map to exactly one receiver_name.",
+      "severity": "medium",
+      "category": "party_consistency"
+    },
+    {
+      "id": "DQ-005",
+      "name": "Customer → stable branch",
+      "description": "An internal customer_no must always use the same branch for that party role (sender/receiver).",
+      "severity": "medium",
+      "category": "party_consistency"
+    },
+    {
+      "id": "DQ-006",
+      "name": "EUR amount conversion",
+      "description": "amount_eur must be within 1% of the FX-converted amount for the stated currency.",
+      "severity": "medium",
+      "category": "financial"
+    },
+    {
+      "id": "DQ-007",
+      "name": "Required party fields",
+      "description": "Every transaction must have sender_name, sender_identity_no, receiver_name, and receiver_identity_no populated.",
+      "severity": "high",
+      "category": "completeness"
+    },
+    {
+      "id": "DQ-008",
+      "name": "External sender without customer no",
+      "description": "When sender_customer_no is null, sender_name and sender_identity_no must still be present (inbound wire rule).",
+      "severity": "medium",
+      "category": "completeness"
+    }
+  ]
+}

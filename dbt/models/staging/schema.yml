@@ -1,0 +1,42 @@
+version: 2
+
+models:
+  - name: stg_raw_transactions
+    description: Staging view of raw transactions for lineage tracking
+    columns:
+      - name: txn_id
+        description: Unique transaction ID
+        tests:
+          - not_null
+          - unique
+      - name: account_id
+        description: Account identifier
+        tests:
+          - not_null
+      - name: amount
+        description: Transaction amount in original currency
+        tests:
+          - not_null
+
+  - name: stg_flagged_transactions
+    description: Staging view of rule-engine flagged transactions
+    columns:
+      - name: txn_id
+        description: Unique transaction ID
+        tests:
+          - not_null
+      - name: rule_name
+        description: AML rule that triggered the flag
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - geographic
+                - high_value
+                - smurfing
+                - daily_velocity
+                - weekly_volume
+                - monthly_peer_anomaly
+                - dormant_reactivation
+                - mule_inbound
+                - velocity

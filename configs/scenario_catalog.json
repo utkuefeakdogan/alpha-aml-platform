@@ -1,0 +1,92 @@
+{
+  "scenarios": [
+    {
+      "id": "geo_high_risk",
+      "rule_name": "geographic",
+      "title": "Geographic Risk Transfer",
+      "description": "Inbound wire from a high-risk or blocked country to a domestic customer.",
+      "params_key": "geographic",
+      "generator_handler": "inject_geographic",
+      "priority_weight": 1.0,
+      "max_txns_per_inject": 1,
+      "enabled": true
+    },
+    {
+      "id": "high_value_outbound",
+      "rule_name": "high_value",
+      "title": "High Value Outbound",
+      "description": "Single outbound transfer above the EUR threshold.",
+      "params_key": "high_value",
+      "generator_handler": "inject_high_value",
+      "priority_weight": 1.0,
+      "max_txns_per_inject": 1,
+      "enabled": true
+    },
+    {
+      "id": "smurfing_fast",
+      "rule_name": "smurfing",
+      "title": "Smurfing (Structured Payments)",
+      "description": "Series of small FAST payments below reporting thresholds within a week.",
+      "params_key": "smurfing",
+      "generator_handler": "inject_smurfing",
+      "priority_weight": 0.8,
+      "max_txns_per_inject": 12,
+      "enabled": true
+    },
+    {
+      "id": "daily_velocity_burst",
+      "rule_name": "daily_velocity",
+      "title": "Daily Velocity Burst",
+      "description": "Rapid burst of outbound transactions exceeding daily velocity limits.",
+      "params_key": "multi_window",
+      "generator_handler": "inject_daily_velocity",
+      "priority_weight": 0.9,
+      "max_txns_per_inject": 6,
+      "enabled": true
+    },
+    {
+      "id": "weekly_volume_build",
+      "rule_name": "weekly_volume",
+      "title": "Weekly Volume Buildup",
+      "description": "Gradual buildup of outbound volume to exceed weekly EUR limits.",
+      "params_key": "multi_window",
+      "generator_handler": "inject_weekly_volume",
+      "priority_weight": 0.7,
+      "max_txns_per_inject": 1,
+      "enabled": true
+    },
+    {
+      "id": "monthly_peer_flood",
+      "rule_name": "monthly_peer_anomaly",
+      "title": "Monthly Peer Anomaly",
+      "description": "Unusually high monthly transaction count versus peer baseline.",
+      "params_key": "multi_window",
+      "generator_handler": "inject_monthly_peer",
+      "priority_weight": 0.6,
+      "max_txns_per_inject": 4,
+      "enabled": true
+    },
+    {
+      "id": "dormant_wake",
+      "rule_name": "dormant_reactivation",
+      "title": "Dormant Account Reactivation",
+      "description": "Large activity on a customer marked dormant after prolonged inactivity.",
+      "params_key": "dormant_reactivation",
+      "generator_handler": "inject_dormant_reactivation",
+      "priority_weight": 0.85,
+      "max_txns_per_inject": 1,
+      "enabled": true
+    },
+    {
+      "id": "mule_inbound",
+      "rule_name": "mule_inbound",
+      "title": "Mule Inbound Collection",
+      "description": "Multiple distinct external senders transferring to the same receiver within 24h.",
+      "params_key": "mule_inbound",
+      "generator_handler": "inject_mule_inbound",
+      "priority_weight": 0.85,
+      "max_txns_per_inject": 6,
+      "enabled": true
+    }
+  ]
+}

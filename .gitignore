@@ -1,0 +1,55 @@
+# --- Secrets / credentials (NEVER commit) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+*deploy_key*
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- Spark ---
+.spark-checkpoints/
+/tmp/spark-checkpoints/
+spark-warehouse/
+
+# --- dbt ---
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/
+
+# --- ML artifacts (kept out of git; reproducible via training script) ---
+models/*.joblib
+models/*.pkl
+*.joblib
+*.pkl
+
+# --- Notebooks ---
+.ipynb_checkpoints/
+
+# --- Airflow / logs ---
+.airflow/
+logs/
+*.log
+
+# --- OS / editor ---
+.DS_Store
+.idea/
+.vscode/
+*.swp

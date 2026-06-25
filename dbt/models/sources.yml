@@ -1,0 +1,42 @@
+version: 2
+
+sources:
+  - name: aml_raw
+    description: Operational AML tables populated by the streaming pipeline
+    schema: aml
+    tables:
+      - name: raw_transactions
+        description: Legacy raw financial transactions
+      - name: flagged_transactions
+        description: Transactions flagged by the multi-window rule engine
+      - name: sar_reports
+        description: SAR intelligence reports
+
+  - name: aml_enterprise
+    description: Enterprise banking transaction intelligence tables
+    schema: aml
+    tables:
+      - name: customers
+        description: Customer master with risk score and segment
+        columns:
+          - name: customer_id
+            description: Primary key
+          - name: risk_score
+            description: Static AML risk score
+          - name: segment
+            description: retail, premium, or corporate
+
+      - name: transactions
+        description: Enterprise transactions with category and type
+        columns:
+          - name: txn_id
+            description: Unique transaction identifier (lineage anchor)
+          - name: sender_id
+            description: FK to customers
+          - name: txn_category
+            description: MI, Cash, Wire, or BackOffice
+          - name: txn_type
+            description: ATM, FAST, SWIFT, FX, etc.
+
+      - name: account_window_metrics
+        description: Silver-layer multi-window aggregates per customer

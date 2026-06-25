@@ -1,0 +1,12 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir faker confluent-kafka pyyaml psycopg2-binary
+
+COPY src/ /app/src/
+COPY configs/ /app/configs/
+
+ENV PYTHONPATH=/app
+ENV RULES_JSON_PATH=/app/configs/rules.json
+CMD ["python", "/app/src/generator/main.py"]

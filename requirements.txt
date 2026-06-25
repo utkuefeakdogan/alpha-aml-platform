@@ -1,0 +1,13 @@
+faker>=24.0.0
+confluent-kafka>=2.3.0
+pyyaml>=6.0.1
+pyspark==3.4.2
+psycopg2-binary>=2.9.9
+streamlit>=1.32.0
+pandas>=2.2.0
+sqlalchemy>=2.0.0
+altair>=5.2.0
+dbt-postgres>=1.7.0
+apache-airflow==2.8.4
+apache-airflow-providers-postgres>=5.10.0
+openai>=1.14.0

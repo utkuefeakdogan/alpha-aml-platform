@@ -1,0 +1,23 @@
+version: 2
+
+models:
+  - name: gold_customer_risk_profile
+    description: >
+      Gold-layer Customer Risk Profile aggregating 30-day transaction behavior,
+      static customer attributes, and flagged activity counts for compliance reporting.
+    columns:
+      - name: customer_id
+        description: Primary customer identifier (lineage from aml.customers)
+        tests:
+          - not_null
+          - unique
+      - name: risk_score
+        description: Static risk score from customer master (0-100)
+      - name: volume_30d
+        description: Total outbound transaction volume in last 30 days (EUR)
+      - name: txn_count_30d
+        description: Transaction count in last 30 days
+      - name: flag_count_30d
+        description: Number of AML flags in last 30 days
+      - name: distinct_receivers_30d
+        description: Unique receivers — smurfing / peer anomaly signal

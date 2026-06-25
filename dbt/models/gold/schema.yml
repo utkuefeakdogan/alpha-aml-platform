@@ -1,0 +1,26 @@
+version: 2
+
+models:
+  - name: gold_daily_fraud_summary
+    description: Daily aggregated fraud metrics by rule for compliance reporting
+    columns:
+      - name: report_date
+        description: Calendar date of flags
+      - name: rule_name
+        description: AML rule name
+      - name: flag_count
+        description: Number of flags on that day for the rule
+
+  - name: gold_account_risk_score
+    description: Per-account risk tier derived from flagged transaction history
+    columns:
+      - name: account_id
+        description: Customer account identifier
+        tests:
+          - not_null
+          - unique
+      - name: risk_tier
+        description: Computed risk tier (low, medium, high)
+        tests:
+          - accepted_values:
+              values: ['low', 'medium', 'high']

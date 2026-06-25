@@ -1,0 +1,34 @@
+{
+  "velocity": {
+    "window_minutes": 5,
+    "max_txns_per_account": 5,
+    "min_txns_per_minute": 5
+  },
+  "high_value": {
+    "threshold_eur": 10000
+  },
+  "geographic": {
+    "blocked_countries": ["IR", "KP", "SY", "CU", "RU"],
+    "high_risk_countries": ["RU", "KP"]
+  },
+  "multi_window": {
+    "daily_velocity_max": 5,
+    "daily_velocity_max_amount_eur": 1000,
+    "weekly_volume_max_eur": 10000,
+    "biweekly_distinct_receivers_max": 20,
+    "monthly_peer_anomaly_multiplier": 2.5,
+    "monthly_peer_baseline_txn_count": 8
+  },
+  "smurfing": {
+    "weekly_small_txn_threshold_eur": 500,
+    "weekly_small_txn_count": 12
+  },
+  "dormant_reactivation": {
+    "min_amount_eur": 3000
+  },
+  "mule_inbound": {
+    "window_hours": 24,
+    "min_distinct_senders": 5,
+    "min_total_amount_eur": 500
+  }
+}

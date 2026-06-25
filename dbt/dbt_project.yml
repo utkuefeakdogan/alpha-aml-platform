@@ -1,0 +1,29 @@
+name: alpha_aml
+version: 1.0.0
+config-version: 2
+
+profile: alpha_aml
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+
+# Project root is owned by the host user; keep all dbt-writable artifacts under
+# target/ and logs/ (owned by the airflow runtime) so scheduled runs can write.
+log-path: "logs"
+target-path: "target"
+packages-install-path: "target/dbt_packages"
+
+models:
+  alpha_aml:
+    staging:
+      +materialized: view
+      +schema: staging
+    gold:
+      +materialized: table
+      +schema: gold
+
+vars:
+  retention_hours: 24
