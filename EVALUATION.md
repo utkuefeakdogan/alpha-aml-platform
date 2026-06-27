@@ -81,8 +81,8 @@ flowchart TB
 #### Postgres (sink)
 
 - **Neden:** ACID, SQL audit, compliance ekiplerinin anladığı model
-- **AML:** `raw` = ingestion izi; `flagged` = kural + karar kaydı
-- **Kısıt:** 24 saat raw retention (`cleanup_raw_data` DAG)
+- **AML:** `aml.transactions` = ingestion/audit izi (silver); `aml.flagged_transactions` = kural + karar kaydı
+- **Kısıt:** 90 gün transaction retention (`cleanup_dag`, kaynak: `configs/retention.json`); window metrics 4 saat + satır cap'i ile sınırlanır
 
 #### dbt
 
@@ -105,10 +105,10 @@ flowchart TB
 
 | Servis grubu | Yaklaşık limit (compose) | Profil |
 |--------------|--------------------------|--------|
-| ZK + Kafka + Postgres | ~1.6 GB | `core` |
+| ZK (384m) + Kafka (768m) + Postgres (1024m) | ~2.2 GB | `core` |
 | Generator + SAR + Streamlit | ~0.9 GB | `app` |
 | Spark | ~1.5 GB | `app` |
-| Airflow | ~1 GB+ | `ops` |
+| Airflow (1200m) | ~1.2 GB | `ops` |
 
 **Kural:** `core` + `app` açıkken `ops` profilini aynı anda çalıştırmamak (veya `docker stats` ile izlemek).
 
@@ -119,7 +119,7 @@ flowchart TB
 ### Kafka — omurga
 
 - Decoupled, replayable event bus (`transactions.raw`)
-- Internal: `kafka:29092` | Host: `localhost:9092`
+- Internal only: `kafka:29092` (no host port; not exposed to the internet)
 - Ingestion zamanı (`ts`) ≠ işleme zamanı (`ingested_at`, `flagged_at`) → audit izi
 
 ### PySpark Streaming — fraud windowing
@@ -132,22 +132,21 @@ flowchart TB
 
 ### Postgres — sink
 
-- Şema: `aml.raw_transactions`, `aml.flagged_transactions`, `aml.sar_reports`
+- Şema: `aml.transactions` (silver landing), `aml.flagged_transactions`, `aml.sar_reports`, `aml.ml_customer_scores`, `aml.ml_model_runs`, `aml.event_log`
 - dbt okur; Streamlit okur; Airflow temizler/tetikler
+- Not: Legacy `aml.raw_transactions` tablosu emekli edildi (migration `021`); bronze katman artık Kafka `transactions.raw` topic'idir
 
 ### dbt — Data Lineage
 
 | Katman | Karşılık | İçerik |
 |--------|----------|--------|
-| **Raw (Source)** | `aml.*` operasyonel tablolar | Spark çıktısı |
-| **Silver (Staging)** | `stg_raw_transactions`, `stg_flagged_transactions` | View + testler |
-| **Gold** | `gold_daily_fraud_summary`, `gold_account_risk_score` | Raporlama / risk tier |
+| **Bronze (Source)** | Kafka `transactions.raw` → `aml.transactions` | Spark çıktısı (immutable landing) |
+| **Silver (Staging)** | `stg_flagged_transactions` | View + testler |
+| **Gold** | `gold_daily_fraud_summary`, `gold_account_risk_score`, `gold_customer_risk_profile` | Raporlama / risk tier |
 
 ### Streamlit — compliance arayüzü
 
-1. Monitoring — flagged dağılımı, son kayıtlar  
-2. Rule Management — `rules.yaml`  
-3. SAR Reports — üretilmiş raporlar  
+11 sayfa: Overview, Monitoring, Investigation, SAR Archive, Scenarios (salt-okunur senaryo vitrini), Risk Models (ML model performansı), Analytics (trend/segment/koridor), Data Quality, System Health, Logs (merkezi event log), SQL Explorer (salt-okunur).
 
 ---
 
@@ -155,7 +154,7 @@ flowchart TB
 
 ### 3.1 Lifecycle management
 
-1. **Retention:** `cleanup_raw_data` — 24 saat üzeri raw silinir; flagged/SAR kalır  
+1. **Retention:** `cleanup_dag` (@hourly) — `aml.transactions` 90 gün üzeri silinir, window metrics 4 saat + satır cap; flagged/SAR kalır  
 2. **Profil disiplini:** Günlük `make up` (`core`+`app`); Airflow sadece gerektiğinde `make ops`  
 3. **Burst ingestion:** Idle dönemlerde düşük CPU  
 4. **İzleme:** `docker stats` — Spark/Kafka sürekli %90+ ise limit azalt  
@@ -173,8 +172,8 @@ flowchart TB
 ### 3.3 Lineage özeti
 
 ```
-Kafka JSON
-  → Spark → aml.raw / aml.flagged
+Kafka JSON (transactions.raw = bronze)
+  → Spark → aml.transactions / aml.flagged_transactions
     → dbt sources
       → staging (tests)
         → gold (aggregations)
@@ -236,15 +235,18 @@ docker compose --profile core --profile app up -d --build
 docker ps --format 'table {{.Names}}\t{{.Status}}'
 docker compose logs -f transaction-gen   # Ctrl+C ile çık
 docker exec data-project-postgres-1 psql -U user -d datadb -c \
-  "SELECT COUNT(*) AS raw FROM aml.raw_transactions; SELECT COUNT(*) AS flagged FROM aml.flagged_transactions;"
+  "SELECT COUNT(*) AS txns FROM aml.transactions; SELECT COUNT(*) AS flagged FROM aml.flagged_transactions;"
 ```
 
 | Endpoint | URL |
 |----------|-----|
-| Dashboard | http://localhost:8501 |
+| **Canlı (public)** | **https://utku-efe-aml.duckdns.org** — Caddy reverse proxy + otomatik Let's Encrypt HTTPS (`edge` profili) |
+| Dashboard (lokal) | http://localhost:8501 |
 | Airflow (sadece `make ops` sonrası) | http://localhost:8080 (admin / admin) |
-| Kafka (host) | localhost:9092 |
-| Postgres | localhost:5432 (`user` / `password`, DB: `datadb`) |
+| Kafka | internal only (`kafka:29092`, not exposed to host) |
+| Postgres | internal only (`postgres:5432`; `docker exec ... psql`, DB: `datadb`) |
+
+**Güvenlik duruşu (canlı deploy):** İnternete açık tek port Caddy'nin **80/443**'ü (80 → 443 yönlendirir). Streamlit yalnızca `127.0.0.1:8501`'e bağlı (reverse proxy iç ağdan `streamlit:8501`'e gider); Postgres ve Kafka host'a hiç açık değil. Dashboard salt-okunur ve auth'suz (kasıtlı public demo); yazma yolları (`freesql_reader` SELECT-only + SQL sanitizasyonu) kapalı.
 
 ### 4.3 Ne zaman ne açılır?
 
@@ -306,29 +308,10 @@ Mülakat demosu için temiz slate istenirse kullanın; normal geliştirmede **`-
 |------|--------|----------|
 | **KYC Risk Score** | `aml.customers.risk_score` | Statik onboarding riski: segment + PEP + kanal + ülke (0–100) |
 | **Alert Priority** | `aml.flagged_transactions.alert_priority_score` | Hybrid triage: 60% (kural tabanı + tutar/500) + 40% KYC |
+| **ML Anomaly / Triage** | `aml.ml_customer_scores` | Her zaman çalışan 9. "senaryo": Isolation Forest (gözetimsiz anomali) + Gradient Boosting (gözetimli triage). `ml_score` DAG ile 6 saatte bir üretilir; **gerçek alert üretmez**, salt açıklayıcıdır. Metadata: `aml.ml_model_runs` |
 
 KYC bantları: Düşük 0–50, Orta 50–75, Yüksek 75–100.
 
 ---
 
-## 6. Notlarım
-
-<!-- Kendi gözlemlerinizi, mülakat notlarınızı ve kararlarınızı buraya yazın -->
-
-- 
-
----
-
-## 7. Geliştirilecek kısımlar
-
-<!-- Öncelik, sorumlu, tahmini efor vb. ekleyebilirsiniz -->
-
-| Öncelik | Konu | Durum | Not |
-|---------|------|-------|-----|
-| | | | |
-| | | | |
-| | | | |
-
----
-
-*Son güncelleme: proje implementasyonu sonrası mimari özet. `README.md` vizyon ve klasör yapısı için; bu dosya operasyonel ve değerlendirme bağlamı içindir.*
+*Son güncelleme: canlı HTTPS deploy sonrası mimari ve operasyon özeti. `README.md` vizyon ve klasör yapısı için; bu dosya operasyonel ve değerlendirme bağlamı içindir; derin teknik gezinti için `efe_system.md`.*

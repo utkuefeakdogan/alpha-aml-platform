@@ -1,4 +1,4 @@
-.PHONY: up up-all down logs core app ops reload-configs
+.PHONY: up up-all down logs core app ops edge reload-configs
 
 up:
 	docker compose --profile core --profile app up -d --build
@@ -20,6 +20,11 @@ app:
 
 ops:
 	docker compose --profile ops up -d --build
+
+# HTTPS reverse proxy (Caddy + auto Let's Encrypt). Requires SITE_ADDRESS +
+# ACME_EMAIL in .env and ports 80/443 open in the Oracle Cloud Security List.
+edge:
+	docker compose --profile edge up -d
 
 # Recreate the containers that bind-mount ./configs so they pick up edited
 # rule/scenario files. Needed because editors that replace the configs dir

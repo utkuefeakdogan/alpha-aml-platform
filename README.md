@@ -11,7 +11,9 @@
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.32-FF4B4B?logo=streamlit&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker%20Compose-2496ED?logo=docker&logoColor=white)
 
-**Live demo:** _self-hosted, HTTPS — link coming soon_ · **Domain:** banking & fraud / AML
+### 🔗 Live demo: **[utku-efe-aml.duckdns.org](https://utku-efe-aml.duckdns.org)**
+
+A self-hosted, HTTPS deployment running 24/7 on my own cloud VM. **Domain:** banking & fraud / AML.
 
 ---
 
@@ -59,8 +61,10 @@ flowchart LR
 - **Real-time streaming rule engine** — PySpark Structured Streaming evaluates 8 AML typologies over rolling daily/weekly/biweekly/monthly windows, one alert per customer per rule per batch.
 - **Medallion data model in dbt** — Bronze (raw stream) → Silver (operational aggregates + dbt staging views) → Gold (risk/reporting tables) with `not_null` / `unique` / `accepted_values` tests and explicit `ref()` lineage.
 - **Orchestration with Airflow** — config-driven retention, hourly pipeline audits, daily dbt runs, GenAI SAR triggering, and a disk/memory guard that protects the VM.
-- **Compliance dashboard (Streamlit)** — 8 pages (below), dark theme, full **i18n in EN / DE / TR**.
+- **Always-on ML risk layer** — an unsupervised **Isolation Forest** anomaly model + a supervised **Gradient Boosting** triage model (scored every 6h via Airflow) run as a 9th, always-on "scenario" that augments the rules without raising its own alerts.
+- **Compliance dashboard (Streamlit)** — 11 pages (below), dark theme, full **i18n in EN / DE / TR**.
 - **GenAI SAR drafting** — groups flagged activity per account, hashes the account id (PII-safe), and drafts a Suspicious Activity Report via OpenAI (with a deterministic mock fallback when no API key is set).
+- **Secure, self-hosted deployment** — public traffic terminates at a **Caddy reverse proxy with automatic Let's Encrypt HTTPS**; the database and Kafka are never exposed, and the dashboard is bound behind the proxy.
 - **Cost-aware engineering** — tuned per-service memory budgets, alert budgeting to prevent analyst fatigue, automatic data retention, and a self-healing ops profile, all on a single 6 GB Oracle Cloud free-tier VM.
 
 ### Detection scenarios
@@ -80,7 +84,7 @@ Thresholds live in [`configs/rules.json`](configs/rules.json) and the scenario c
 
 ### Dashboard pages
 
-`Overview` (recruiter-facing story + live KPIs) · `Monitoring` (alerts, risk distribution, live feed) · `Investigation` (drill into an alert or a customer 360) · `SAR Archive` · `Scenarios` (read-only typology catalogue with live thresholds) · `Risk Models` (ML anomaly scores, ROC/PR curves, feature importance, rules-vs-ML overlap) · `Data Quality` · `System Health` (pipeline freshness, Airflow DAG health, source-consistency checks, throughput, storage) · `SQL Explorer` (read-only, restricted DB role).
+`Overview` (recruiter-facing story + live KPIs) · `Monitoring` (alerts, risk distribution, live feed) · `Investigation` (drill into an alert or a customer 360) · `SAR Archive` · `Scenarios` (read-only typology catalogue with live thresholds + the ML card) · `Risk Models` (ML anomaly scores, ROC/PR curves, feature importance, rules-vs-ML overlap) · `Analytics` (transaction/alert trends, customer acquisition, segmentation, cross-border corridors, risk-band & PEP incidence) · `Data Quality` · `System Health` (pipeline freshness, Airflow DAG health, source-consistency checks, throughput, storage) · `Logs` (central event/error log with level/source/time filters) · `SQL Explorer` (read-only, restricted DB role).
 
 ---
 
@@ -97,6 +101,7 @@ Thresholds live in [`configs/rules.json`](configs/rules.json) and the scenario c
 | Machine learning | scikit-learn (Isolation Forest, Gradient Boosting), joblib |
 | GenAI | OpenAI (optional; mock fallback) |
 | Packaging / ops | Docker Compose, profiles, Makefile |
+| Edge / TLS | Caddy reverse proxy, automatic Let's Encrypt HTTPS |
 
 ---
 
@@ -118,9 +123,19 @@ make up
 make ops                      # Airflow at http://localhost:8080  (admin / admin)
 ```
 
-Other targets: `make down`, `make logs`, `make core`, `make app`, `make ops`.
+Other targets: `make down`, `make logs`, `make core`, `make app`, `make ops`, `make edge`.
 
-> Compose **profiles** (`core`, `app`, `ops`) let the stack run within a 6 GB RAM budget — `ops` (Airflow) can be brought up only when needed.
+> Compose **profiles** (`core`, `app`, `ops`, `edge`) let the stack run within a 6 GB RAM budget — `ops` (Airflow) can be brought up only when needed.
+
+### Public HTTPS (how the live demo is served)
+
+The live demo runs behind the `edge` profile. Set `SITE_ADDRESS` (a free DuckDNS hostname) and `ACME_EMAIL` in `.env`, open ports 80/443, then:
+
+```bash
+make edge                     # starts Caddy (auto Let's Encrypt) + DuckDNS updater
+```
+
+Caddy terminates TLS and reverse-proxies to Streamlit over the internal Docker network; Postgres, Kafka and the raw dashboard port stay off the public internet.
 
 ---
 
@@ -129,17 +144,18 @@ Other targets: `make down`, `make logs`, `make core`, `make app`, `make ops`.
 ```text
 alpha-aml-platform/
 ├── src/
-│   ├── generator/      # synthetic txn producer + 8 scenario injectors + customer onboarding
+│   ├── generator/      # synthetic txn producer + scenario injectors + customer onboarding
 │   ├── processing/     # PySpark streaming job, window engine, alert budget & priority
+│   ├── ml/             # feature engineering + Isolation Forest / Gradient Boosting training
 │   ├── dashboard/      # Streamlit app, pages, i18n (en/de/tr), DB access
 │   ├── ai_models/      # GenAI SAR generator (OpenAI + mock fallback)
-│   └── common/         # shared utilities (retention config)
+│   └── common/         # shared utilities (retention config, central event logging)
 ├── configs/            # rules.json/yaml, scenario_catalog.json, retention.json, DQ rules
 ├── dbt/                # dbt project: staging + gold models, sources, tests
-├── orchestration/      # Airflow DAGs (cleanup, audit, dbt_transform, sar, disk_guard)
-├── docker/             # init SQL + numbered schema migrations
+├── orchestration/      # Airflow DAGs (cleanup, audit, dbt_transform, sar, ml_score, disk_guard)
+├── docker/             # init SQL + numbered schema migrations + Caddyfile
 ├── scripts/            # start.sh, disk_guard.sh
-├── docker-compose.yml  # 8-service stack (profiles: core / app / ops)
+├── docker-compose.yml  # service stack (profiles: core / app / ops / edge)
 └── Makefile
 ```
 
@@ -164,15 +180,8 @@ alpha-aml-platform/
 
 ---
 
-## Roadmap
-
-- [x] ML layer: Isolation Forest anomaly detection + supervised triage model, surfaced in a "Risk Models" dashboard page
-- [ ] Automated test suite (pytest) + GitHub Actions CI (lint, tests, `dbt parse`)
-- [ ] Analyst "Insights" page (cohort / trend / false-positive analysis)
-- [ ] Public HTTPS live demo
-
----
-
 ## Notes
 
-This is a personal portfolio project built to showcase data engineering, analytics and ML skills in the AML/fraud domain. All data is synthetic. Detection combines a **deterministic rule engine** (real-time, in Spark) with an **ML risk layer** (Isolation Forest anomaly + supervised triage). See [`EVALUATION.md`](EVALUATION.md) and [`efe_system.md`](efe_system.md) for a deep architecture and operations walkthrough.
+This is a personal portfolio project I built to showcase my data engineering, analytics and ML skills in the AML/fraud domain. All data is synthetic. Detection combines a **deterministic rule engine** (real-time, in Spark) with an **ML risk layer** (Isolation Forest anomaly + supervised triage).
+
+**👉 See it live at [utku-efe-aml.duckdns.org](https://utku-efe-aml.duckdns.org)**, and read [`EVALUATION.md`](EVALUATION.md) and [`efe_system.md`](efe_system.md) for a deep architecture and operations walkthrough.

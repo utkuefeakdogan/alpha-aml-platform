@@ -1,0 +1,30 @@
+# Caddy reverse proxy for the Alpha AML dashboard.
+#
+# Caddy terminates TLS (automatic Let's Encrypt certificate) and proxies to the
+# Streamlit container over the internal Docker network. Streamlit itself is NOT
+# exposed to the internet once you switch its host mapping to 127.0.0.1.
+#
+# Requires one env var (see .env / .env.example):
+#   SITE_ADDRESS  -> your public hostname, e.g. my-aml.duckdns.org
+# Optional: to receive Let's Encrypt expiry notices, uncomment the global
+# `email` block below and set ACME_EMAIL in .env.
+#
+# Ports 80 and 443 must be reachable from the internet. Open them in the Oracle
+# Cloud Security List (ingress 0.0.0.0/0 TCP). The OS firewall needs no change:
+# Docker-published ports bypass the host INPUT chain via the DOCKER/nat chains,
+# exactly like the existing 8501 mapping. Port 80 is required for the ACME HTTP
+# challenge and the automatic http->https redirect.
+
+# {
+# 	email {$ACME_EMAIL}
+# }
+
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	# Streamlit uses a long-lived WebSocket for its session; Caddy upgrades it
+	# automatically. flush_interval -1 disables buffering for the live stream.
+	reverse_proxy streamlit:8501 {
+		flush_interval -1
+	}
+}

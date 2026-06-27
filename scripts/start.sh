@@ -8,8 +8,8 @@ docker compose --profile core --profile app up -d --build
 
 echo ""
 echo "Services:"
-echo "  Kafka:      localhost:9092"
-echo "  PostgreSQL: localhost:5432"
+echo "  Kafka:      internal only (kafka:29092 on the Docker network)"
+echo "  PostgreSQL: internal only (postgres:5432; use 'docker exec ... psql')"
 echo "  Dashboard:  http://localhost:8501"
 echo ""
 echo "Optional ops profile: docker compose --profile ops up -d"

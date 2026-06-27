@@ -30,8 +30,9 @@ services:
     depends_on:
       zookeeper:
         condition: service_healthy
-    ports:
-      - "9092:9092"
+    # No host port mapping: Kafka is reachable only inside the Docker network
+    # (kafka:29092). The PLAINTEXT_HOST listener on 9092 stays bound inside the
+    # container for the local healthcheck, but is never exposed to the internet.
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
@@ -58,8 +59,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
       POSTGRES_DB: ${POSTGRES_DB:-datadb}
-    ports:
-      - "5432:5432"
+    # No host port mapping: Postgres is reachable only inside the Docker network
+    # (postgres:5432). Never expose the database to the internet; use
+    # `docker exec ... psql` for admin access.
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./docker/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
@@ -139,7 +141,10 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "8501:8501"
+      # Bound to localhost only: public traffic comes in via Caddy (443) over the
+      # internal network (streamlit:8501). 127.0.0.1 keeps the SSH tunnel working
+      # for local debugging while never exposing unencrypted HTTP to the internet.
+      - "127.0.0.1:8501:8501"
     environment:
       <<: *common-env
       RULES_PATH: /app/configs/rules.yaml
@@ -262,6 +267,46 @@ services:
     networks:
       - aml-net
 
+  # ----------------------------------------------------------------------------
+  # Edge: HTTPS reverse proxy (TLS termination via automatic Let's Encrypt).
+  # Start with: docker compose --profile edge up -d caddy
+  # Requires SITE_ADDRESS (e.g. my-aml.duckdns.org) + ACME_EMAIL in .env, and
+  # ports 80/443 open in the Oracle Cloud Security List + OS firewall.
+  # ----------------------------------------------------------------------------
+  caddy:
+    profiles: ["edge"]
+    image: caddy:2.8-alpine
+    mem_limit: 128m
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in .env, e.g. my-aml.duckdns.org}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    restart: unless-stopped
+    networks:
+      - aml-net
+
+  # Optional: keep the DuckDNS A-record pointed at this VM. Oracle public IPs are
+  # usually static, so this is belt-and-suspenders. Set DUCKDNS_SUBDOMAINS (the
+  # part before .duckdns.org) and DUCKDNS_TOKEN in .env.
+  duckdns:
+    profiles: ["edge"]
+    image: lscr.io/linuxserver/duckdns:latest
+    mem_limit: 64m
+    environment:
+      SUBDOMAINS: ${DUCKDNS_SUBDOMAINS:-}
+      TOKEN: ${DUCKDNS_TOKEN:-}
+      LOG_FILE: "false"
+    restart: unless-stopped
+    networks:
+      - aml-net
+
 networks:
   aml-net:
     driver: bridge
@@ -269,3 +314,5 @@ networks:
 volumes:
   pgdata:
   spark-checkpoints:
+  caddy-data:
+  caddy-config:
