@@ -10,7 +10,7 @@ A framing note before the 12 sections: **the code in the repo is the post-incide
 
 # 1. System Architecture
 
-**What it is:** "Alpha AML Pipeline" — a real-time **Anti-Money-Laundering / fraud-detection platform** for a simulated European bank. It generates synthetic banking transactions, streams them through Kafka, applies windowed AML rules in Spark, persists everything in PostgreSQL, transforms raw→silver→gold with dbt, surfaces alerts in a Streamlit compliance dashboard, and auto-drafts **SAR** (Suspicious Activity Reports) with a GenAI worker. It's explicitly built as a senior/lead data-engineering interview showcase tuned for a 6 GB Oracle Cloud free-tier VM (see `README.md`, `EVALUATION.md`).
+**What it is:** "Alpha AML Pipeline" — a real-time **Anti-Money-Laundering / fraud-detection platform** for a simulated European bank. It generates synthetic banking transactions, streams them through Kafka, applies windowed AML rules in Spark, persists everything in PostgreSQL, transforms bronze→silver→gold with dbt, surfaces alerts in a Streamlit compliance dashboard, and auto-drafts **SAR** (Suspicious Activity Reports) with a GenAI worker. It's explicitly built as a senior/lead data-engineering interview showcase tuned for a 6 GB Oracle Cloud free-tier VM (see `README.md`, `EVALUATION.md`).
 
 **End-to-end:** `transaction-gen` → Kafka topic `transactions.raw` → `spark-job` (30s micro-batches) → Postgres `aml.*` → dbt (gold models) / Streamlit / `sar-worker`, with Airflow orchestrating retention, audits, dbt runs, SAR triggers, ML scoring, and disk guarding.
 
@@ -83,9 +83,9 @@ A framing note before the 12 sections: **the code in the repo is the post-incide
 
 ---
 
-# 3. Data Layers (Raw / Silver / Gold)
+# 3. Data Layers (Bronze / Silver / Gold)
 
-The project maps a medallion architecture onto Postgres + dbt (`EVALUATION.md` §2 table):
+The project maps a medallion architecture onto Kafka + Postgres + dbt:
 
 | Layer | What it is | Stored where | Produced by | Owner |
 |---|---|---|---|---|
@@ -144,7 +144,7 @@ This is the headline incident. Trace it:
 - **Topics:** one — `transactions.raw` (`KAFKA_TOPIC_RAW`), 1 partition / replication factor 1, auto-created by the generator's `ensure_topic` (`transaction_generator.py:464`) or `KAFKA_AUTO_CREATE_TOPICS_ENABLE=true`.
 - **Producer:** `transaction-gen` only (`publish`, line 487), `acks=1`, flush per message.
 - **Consumer:** `spark-job` only (`spark.readStream...subscribe`, `streaming_job.py:327`), offsets checkpointed in `/tmp/spark-checkpoints-enterprise-v4`.
-- **Role:** decoupling/replayable buffer between ingestion and processing — if Spark restarts, offsets/checkpoint let it resume; if the generator dies, messages persist. Listeners: internal `kafka:29092` only (no host port; not exposed to the internet). (`EVALUATION.md` §2 acknowledges this ~1.1 GB ZK+Kafka cost is a deliberate "industry-standard" tradeoff on a 6 GB VM.)
+- **Role:** decoupling/replayable buffer between ingestion and processing — if Spark restarts, offsets/checkpoint let it resume; if the generator dies, messages persist. Listeners: internal `kafka:29092` only (no host port; not exposed to the internet). The ~1.1 GB ZK+Kafka cost is a deliberate "industry-standard" trade-off on a 6 GB VM (see `EVALUATION.md` §3).
 
 ---
 
@@ -170,7 +170,7 @@ All in `orchestration/dags/`, **SequentialExecutor**, `start_date=2026-01-01`, `
 
 **Why the cleanup DAG was deleting nothing (the incident):**
 - **Original misconfiguration:** retention for the metrics/transactions was set to a long horizon (the **90-day** `TXN_RETENTION_DAYS`, originally reused for metrics). On a system only ~3 weeks old, `cutoff = now() - 90 days` is *older than any row that exists*, so `DELETE ... WHERE computed_at < cutoff` matched **0 rows** while the table appended 240k rows/hour. Retention was structurally incapable of catching up.
-- **Subtle bug that still exists in the current "fixed" version:** because `_write_metrics_upsert` sets `computed_at = EXCLUDED.computed_at` (current timestamp) on **every** update, an actively-transacting customer's metric row is perpetually "fresh." So the age-based rule `computed_at < now()-4h` only ever removes rows for customers who went quiet >4h ago — it can't bound a hot table. The thing actually keeping the table small today is the **row-cap** path (and the disk guard's `TRUNCATE`), not the age rule. This is worth tightening (see §12).
+- **Subtle bug that still exists in the current "fixed" version:** because `_write_metrics_upsert` sets `computed_at = EXCLUDED.computed_at` (current timestamp) on **every** update, an actively-transacting customer's metric row is perpetually "fresh." So the age-based rule `computed_at < now()-4h` only ever removes rows for customers who went quiet >4h ago — it can't bound a hot table. The thing actually keeping the table small today is the **row-cap** path (and the disk guard's `TRUNCATE`), not the age rule — pruning by closed-window `window_start` is the cleaner long-term fix.
 
 ---
 
@@ -246,55 +246,118 @@ Root causes:
 
 ---
 
-# 11. Known Issues — root cause + fix
+# 11. Machine Learning risk layer
 
-| Issue | Root cause | Fix (status) |
-|---|---|---|
-| **Disk 100% from `account_window_metrics` bloat** | Append-only metrics write (sliding `window_start`, no effective upsert) + over-long retention → 121M rows | ✅ Already fixed: stable calendar `window_start` + `ON CONFLICT DO UPDATE` upsert + `UNIQUE` constraint + 4h/50k cleanup + disk-guard truncate. Table now ~6k rows. |
-| **Spark crash-looping** | Per-batch full-table JDBC scans (`customers` ×3, two 30-day history reads), `.collect()` to 512m driver, full `overwrite` of behavior table; OOM under 512m/`local[2]`; `restart: unless-stopped` re-loops | Partially mitigated (metrics no longer unbounded), but **still falling behind every batch**. Needs: broadcast/cached customer reads, drop the per-batch behavior overwrite, raise trigger interval, raise driver/executor memory or reduce work (see §12). |
-| **Airflow OOM-killed** | `airflow` container at 512m (originally LocalExecutor) scheduler+webserver+tasks; the `disk_guard`/`cleanup` tasks query a multi-GB DB and the bloated metrics table; concurrent with full `core+app` stack on 6 GB | ✅ Mitigated: `airflow` `mem_limit` raised to **1200m** and switched to **SequentialExecutor** (one task at a time = lower peak memory); runbook (`EVALUATION.md` §1.3) prescribes not running `ops` simultaneously with heavy `app` load. |
-| **Zookeeper + Postgres unhealthy** | Cascading from disk pressure: when `/` hits 100%, Postgres can't write WAL/extend files → healthcheck `pg_isready` fails; memory thrash makes ZK miss heartbeats | Resolving the disk bloat (done) clears this; both are `healthy` now. Add the disk monitor as early warning. |
-| **Kafka exited** | ZK unhealthy (`depends_on zookeeper: service_healthy`) + memory pressure on a 768m broker when the VM is swapping | Fix upstream disk/mem; Kafka is `healthy` now. Consider lowering retention/segment sizes if disk is tight. |
+The ML layer (`src/ml/`) is an **always-on "9th scenario"**: it runs alongside the eight rule typologies but is **descriptive, not alerting** — it never writes to `aml.flagged_transactions`. Its job is to (a) surface anomalous customers the static thresholds miss, and (b) benchmark the rule engine with a supervised model. It is scheduled by the `ml_score` Airflow DAG every 6 hours (`0 */6 * * *`) and is intentionally cheap: it trains on a few-thousand-row, active-sender feature frame, not the 1.23M universe.
 
-Net: the disk/metrics incident is **remediated in code and in the live DB**; the **Spark backpressure and memory tuning are the remaining open problems**.
+### 11.1 Feature engineering (`src/ml/features.py`)
 
----
+One row per **active sending customer** over a rolling **30 days**, built directly from the live operational tables (`aml.transactions` + `aml.customers` + `aml.flagged_transactions`) — deliberately the same behavioral surface the rule engine sees. Twelve model features:
 
-# 12. Suggested Fixes
+| Feature | Meaning |
+|---|---|
+| `txn_count_30d` | number of outbound transactions |
+| `volume_30d` | total outbound amount (EUR) |
+| `avg_amount_30d`, `max_txn_30d`, `std_amount_30d` | amount distribution shape |
+| `distinct_receivers_30d` | fan-out (mule / smurfing signal) |
+| `distinct_countries_30d` | geographic spread |
+| `cross_border_txns`, `cross_border_ratio` | non-DE receiver count and its share |
+| `fast_txns` | count of `FAST`-type transfers (velocity signal) |
+| `kyc_risk_score`, `is_pep` | static KYC context joined from `customers` |
 
-**a) Tighten `cleanup_dag.py` retention** — make metrics pruning real instead of relying on `computed_at`. Prune closed windows by `window_start`, keep the row-cap, and add `pipeline_metrics` retention. Proposed core change to `cleanup_lifecycle`:
+Monetary/heavy-tailed columns (`volume_30d`, `avg_amount_30d`, `max_txn_30d`, `std_amount_30d`) get a **`log1p`** transform so a handful of large transfers don't dominate. The label `rule_flagged = flag_count_30d > 0` is computed but **excluded from the input matrix** to avoid leakage — the supervised model must *predict* the alert, not read it.
 
-```python
-# Prune metrics by the window they describe, not by computed_at (which the upsert keeps fresh).
-cur.execute("""
-    DELETE FROM aml.account_window_metrics
-    WHERE (window_type = 'daily'    AND window_start < %s)
-       OR (window_type = 'weekly'   AND window_start < %s)
-       OR (window_type = 'biweekly' AND window_start < %s)
-       OR (window_type = 'monthly'  AND window_start < %s)
-""", (now - timedelta(days=2), now - timedelta(days=14),
-      now - timedelta(days=28), now - timedelta(days=62)))
+### 11.2 Models (`src/ml/train.py`)
 
-# Keep pipeline_metrics bounded too.
-cur.execute("DELETE FROM aml.pipeline_metrics WHERE recorded_at < %s", (now - timedelta(days=30),))
-```
-Also batch large deletes (`DELETE ... LIMIT` loops) and run `VACUUM (ANALYZE)` so freed space is actually reclaimed — a one-shot `DELETE` on a 121M-row table won't return disk to the OS without vacuum/`pg_repack`.
+1. **Unsupervised — Isolation Forest** (`n_estimators=200`, `contamination=0.05`, `random_state=42`). The raw `-decision_function` is min-max **normalized to `anomaly_score` ∈ [0,1]** (higher = more anomalous); `is_anomaly = predict() == -1`; customers are ranked into `anomaly_rank`. Always produced, even on sparse data.
+2. **Supervised — Gradient Boosting triage**, trained on the `rule_flagged` label, but only when there are **≥ 10 positives and ≥ 10 negatives** (`ML_MIN_PER_CLASS`) and **≥ 40 samples** (`ML_MIN_SAMPLES`). Because labels are scarce and imbalanced, evaluation uses **stratified K-fold out-of-fold probabilities** (`cross_val_predict`), not a tiny single holdout — every positive is used for scoring. Reported metrics: **ROC-AUC, PR-AUC**, and **precision/recall/F1 at the F1-optimal threshold** (not a fixed 0.5). The model is then refit on the full set to emit stable `feature_importance` and a per-customer `triage_score`. If the label bar isn't met, the run records *why* supervision was skipped and still ships anomaly scores — honest by design.
 
-**b) Disk-usage monitoring DAG** — this already exists as `disk_guard_dag.py` (`*/15`, host disk + PG size + emergency truncate) plus `scripts/disk_guard.sh`. The improvement is to make it *alert before* it truncates (it currently truncates silently at critical) and to emit a `pipeline_metrics` row so the dashboard can chart disk/DB growth over time, plus add a per-table size threshold so `customer_addresses`/`customers` growth is visible.
+### 11.3 Persistence & surfacing
 
-**c) Tune `docker-compose.yml` memory** for the 6 GB VM:
-- `spark-job`: the real fix is *less work per batch*, but also bump `SPARK_DRIVER_MEMORY`/`SPARK_EXECUTOR_MEMORY` from 512m toward 768m–1g (container is 1536m) and increase the trigger interval (e.g. 60s) to stop falling behind.
-- `airflow`: raise from 512m to ~1g (it's OOMing); keep `ops` off when `app` is under load.
-- Total budget: ZK+Kafka+PG (~1.6 GB) + app (~0.9 GB) + Spark (~1.5 GB) ≈ 4 GB leaves little headroom — hence the runbook's "don't run `ops` simultaneously" rule.
-
-**d) Other improvements I spotted in the code:**
-- **Spark per-batch DB reads are the core scalability bug.** `enrich_with_customer_context` and `_with_alert_priority` each read the entire `aml.customers` (1.23M rows); the dormant check reads it again. Read once, **broadcast/cache**, and push filters into SQL. The two 30-day `aml.transactions` history scans (metrics + behavior) should be combined or replaced with incremental state.
-- **Drop the per-batch `customer_behavior_30d` overwrite** (`streaming_job.py:254`, `mode("overwrite")` every 30s drops+rewrites the whole table — expensive and a read/write race for the dashboard). Move it to the `@daily`/`@hourly` batch in Airflow, or upsert incrementally.
-- **dbt staging inconsistency:** ✅ *Resolved* — the near-empty legacy `aml.raw_transactions` and its `stg_raw_transactions` model were retired (migration `021`); lineage now flows Kafka → `aml.transactions` directly.
-- **Two overlapping cleanup DAGs:** ✅ *Resolved* — `cleanup_raw_data` was deleted; `cleanup_dag` is now the single retention DAG.
-- **Secrets:** `.env` holds DB creds and the OpenAI key in plaintext. It is **git-ignored** (only `.env.example` is committed), but it's still local plaintext — `EVALUATION.md` §5 flags moving to Vault / Oracle Secrets. Also note the DB password is still the default `password`; now that Postgres/Kafka host ports are closed (internal-only), this is defense-in-depth rather than an exposed hole, but rotating it is recommended.
-- **`_write_metrics_upsert` `.collect()`** brings all metric rows to the driver; for large active-customer counts use `foreachPartition` with a partition-local connection, or write to a staging table + server-side `MERGE`.
+- **`aml.ml_customer_scores`** — current snapshot only (the job `DELETE`s then re-inserts): `customer_id, model_version, anomaly_score, anomaly_rank, is_anomaly, triage_score, rule_flagged` + a few context columns (`txn_count_30d`, `volume_30d`, `distinct_receivers_30d`, `max_txn_30d`, `kyc_risk_score`).
+- **`aml.ml_model_runs`** — one row per run: sample/feature/anomaly counts, `contamination`, `positive_rate`, `roc_auc`, `pr_auc`, `precision/recall/f1`, the downsampled `roc_curve`/`pr_curve` and `feature_importance` as JSONB, plus free-text `notes`.
+- A best-effort **joblib** artifact (`aml_risk_models.joblib`) is written to `MODEL_DIR` (never fails the job).
+- Surfaced in the dashboard **Risk Models** page (distribution, ROC/PR curves, feature importance, rules-vs-ML overlap), the **Scenarios** ML card (9th card, live run stats), the **System Health** ML card (freshness), and the **SQL Explorer** ML query category.
 
 ---
 
-The two highest-impact items still on my list are (1) the `cleanup_dag.py` retention rewrite + `pipeline_metrics` pruning and (2) reducing Spark's per-batch DB reads (broadcast the customer table, move the behavior overwrite out of the stream) to stop the "falling behind" backpressure — both tracked here as deliberate next steps rather than open bugs.
+# 12. End-to-end transaction lifecycle
+
+Tracing **one transaction** from birth to (possible) SAR makes the whole system concrete:
+
+1. **Generation** (`transaction-gen`, every 10–20 s). Either a *normal* payment — a realistic enterprise payload (`_txn_payload`) with sender/receiver customer numbers, branch, country, multi-currency amount FX-converted to EUR, capped under `NORMAL_MAX_AMOUNT_EUR=8500` so it never trips a rule — or, when the `ScenarioScheduler` wakes, a *scenario burst* injected by `scenario_injectors.py` that is engineered to cross a specific threshold.
+2. **Kafka** (`transactions.raw`). The dict is serialized to JSON and `produce()`d with `acks=1`. The topic is the bronze layer; if Spark is down, messages wait (bounded by Kafka retention).
+3. **Spark micro-batch** (`spark-job`, every 30 s, `startingOffsets=latest`, `failOnDataLoss=false`). `process_batch` runs the full chain:
+   - `_normalize_batch` — coalesce/fill sender/receiver/branch/country/amount.
+   - `enrich_with_customer_context` — JDBC-join `aml.customers` + a `DISTINCT ON` of `customer_addresses`.
+   - Write to **`aml.transactions`** (append; `ingested_at = now()`, distinct from event `ts`).
+   - `compute_window_metrics` — read 30 days of history, union the batch, aggregate over **4 windows** (daily/weekly/biweekly/monthly), **upsert** into `account_window_metrics` (calendar-aligned `window_start`, `ON CONFLICT DO UPDATE`).
+   - `compute_customer_behavior_30d` — overwrite the 30-day rolling profile.
+   - `evaluate_rules` — apply the **8 AML rules** only to scenario-flagged rows (`_scenario_only`), one flag per customer per rule.
+   - `apply_alert_budget` — enforce `DAILY_ALERT_CAP=100` and `PER_RULE_DAILY_CAP=12`.
+   - `_with_alert_priority` — blend **60 % rule signal + 40 % KYC risk** → write **`aml.flagged_transactions`** (`flagged_at = now()`).
+4. **Dashboard** reads it live within seconds — the Monitoring feed, the recent-alerts panel, and (if flagged) the open-alerts queue and Investigation drill-down.
+5. **SAR** (`sar-worker`, every 300 s; `trigger_sar` DAG every 30 min as a second path). New flagged **account groups** (deduped by `account_id_hash`, PII hashed) are drafted into **`aml.sar_reports`** — mock template by default, OpenAI `gpt-4o-mini` when a key is set.
+6. **ML** (`ml_score`, every 6 h). The customer's updated 30-day behavior re-enters the feature frame and gets a fresh `anomaly_score` / `triage_score`.
+7. **Batch & lifecycle** (Airflow). `aml_pipeline_audit` snapshots counts hourly; `dbt_transform` rebuilds gold daily; `cleanup_dag` prunes `aml.transactions` after 90 days; `disk_guard_dag` watches disk every 15 min.
+
+The three timestamps — event `ts` (when it happened), `ingested_at` (when Spark landed it), `flagged_at` (when a rule fired) — form the audit trail that separates ingestion time from processing time.
+
+---
+
+# 13. dbt models in detail
+
+dbt provides the warehouse/lineage layer on top of the operational `aml.*` tables, run by the `dbt_transform` DAG (`@daily`, `dbt run && dbt test`).
+
+- **Sources** (`models/sources.yml`) — the operational tables Spark writes (`aml.transactions`, `aml.flagged_transactions`, `aml.customers`, …) declared as dbt sources so every downstream model uses `source()`/`ref()` lineage.
+- **Staging** (`models/staging/`) — `stg_flagged_transactions` cleans and types the alert stream as a view, with `schema.yml` data tests (`not_null`, `unique`, `accepted_values`). (The legacy `stg_raw_transactions` was retired with `aml.raw_transactions` in migration `021`.)
+- **Gold** (`models/gold/`) — three reporting/risk tables:
+  - `gold_daily_fraud_summary` — flags aggregated per day and per rule (trend/throughput reporting).
+  - `gold_account_risk_score` — buckets accounts into high/medium/low by flag count.
+  - `gold_customer_risk_profile` — joins transactions + customers + flags into a 30-day per-customer risk profile (has its own `gold_customer_risk_profile_schema.yml` tests).
+
+The medallion mapping is therefore: **bronze** = Kafka `transactions.raw`; **silver** = `aml.transactions` + Spark's operational aggregates + the dbt staging view; **gold** = the three dbt gold tables.
+
+---
+
+# 14. Configuration & rules reference
+
+All detection thresholds live in version-controlled JSON under `configs/` — a single source of truth shared by the Spark engine and the dashboard.
+
+**`configs/rules.json`** — the eight rule thresholds:
+
+| Rule | Key thresholds |
+|---|---|
+| `velocity` | `window_minutes=5`, `max_txns_per_account=5` |
+| `high_value` | `threshold_eur=10000` |
+| `geographic` | `blocked_countries=[IR,KP,SY,CU,RU]`, `high_risk_countries=[RU,KP]` |
+| `daily_velocity` (multi_window) | `daily_velocity_max=5` each ≤ `1000` EUR |
+| `weekly_volume` (multi_window) | `weekly_volume_max_eur=10000` |
+| `biweekly` distinct receivers | `biweekly_distinct_receivers_max=20` |
+| `monthly_peer_anomaly` | `multiplier=2.5` × `baseline_txn_count=8` (≈ >20/month) |
+| `smurfing` | `weekly_small_txn_threshold_eur=500`, `count=12` |
+| `dormant_reactivation` | `min_amount_eur=3000` on a dormant account |
+| `mule_inbound` | `window_hours=24`, `min_distinct_senders=5`, `min_total_amount_eur=500` |
+
+**`configs/scenario_catalog.json`** — the synthetic-injection catalog. Seven scenarios are actively injected (geographic, high_value, smurfing, daily_velocity, weekly_volume, dormant_reactivation, mule_inbound); `monthly_peer_flood` is `enabled:false` (detected organically). The scheduler honors `SCENARIO_WAKE_MIN/MAX_SEC`, `SCENARIO_DAILY_CAP`, per-rule cooldown, and an empty-result cooldown so no unproductive scenario can monopolize the slot.
+
+**`configs/retention.json`** — lifecycle source of truth: `transactions` 90 d, `flagged_transactions` 180 d, `sar_reports` 180 d, `account_window_metrics` 4 h + 50k row cap. **`configs/data_quality_rules.json`** drives the Data Quality page checks.
+
+---
+
+# 15. Security & deployment
+
+- **Edge / HTTPS** (`edge` compose profile). A **Caddy** reverse proxy terminates TLS with an **automatic Let's Encrypt** certificate for `utku-efe-aml.duckdns.org`, redirects `http → https`, and proxies to `streamlit:8501` over the internal Docker network. A **DuckDNS** updater keeps the A-record pointed at the VM. Live at **https://utku-efe-aml.duckdns.org**.
+- **Network posture.** The only internet-facing ports are Caddy's **80/443**. Streamlit is bound to `127.0.0.1:8501` (reachable only via SSH tunnel / the proxy); **Postgres and Kafka have no host ports** — they live entirely on the `aml-net` Docker bridge. The Oracle Cloud Security List allows only 22/80/443.
+- **Read-only SQL Explorer.** Queries run as a dedicated `freesql_reader` role with **SELECT-only** grants, behind a regex sanitizer that blocks DDL/DML — so the public dashboard cannot mutate data.
+- **PII.** The SAR worker stores only a **SHA-256 hash** of the account id, never raw identifiers.
+- **Secrets.** Credentials and the optional OpenAI key live in `.env`, which is **git-ignored** (only `.env.example` is committed). The DB password is still the default `password`; now that the DB is internal-only this is defense-in-depth rather than an exposed hole, but rotating it is the recommended next step. `EVALUATION.md` flags moving secrets to Vault / Oracle Secrets.
+
+---
+
+# 16. Observability
+
+- **Central event log** (`aml.event_log`, migration `020`). A `PostgresLogHandler` (`src/common/event_log.py`) mirrors every `WARNING`+ record from all Python services — generator, Spark driver, SAR worker, ML job and the dashboard — into one table (`ts, source, level, logger, message, detail JSONB`). Airflow DAGs add an `on_failure_callback` (`log_dag_failure`) so task failures land there too.
+- **Logs page** (Streamlit) — summary tiles, level/source/time-range/search filters, trend and source-breakdown charts, and a detail table with JSONB expanders.
+- **System Health page** — per-service freshness cards (ingest, scenario scheduler, dbt, customer acquisition, SAR, **ML**) graded by age thresholds, plus row counts for the monitored `aml.*` tables (including the ML tables).
+- **Disk guard** — `disk_guard_dag` (`*/15`) and `scripts/disk_guard.sh` watch host disk + PG size and emergency-truncate the fastest-growing table before space runs out; `aml_pipeline_audit` snapshots counts hourly into `pipeline_metrics`.
