@@ -157,8 +157,8 @@ def _data_model() -> None:
         unsafe_allow_html=True,
     )
     tiers = [
-        ("bronze", "aml.raw_transactions"),
-        ("silver", "aml.transactions\naml.account_window_metrics\naml.flagged_transactions\nstg_raw_transactions\nstg_flagged_transactions"),
+        ("bronze", "Kafka: transactions.raw"),
+        ("silver", "aml.transactions\naml.account_window_metrics\naml.flagged_transactions\nstg_flagged_transactions"),
         ("gold", "gold_customer_risk_profile\ngold_account_risk_score\ngold_daily_fraud_summary"),
     ]
     cols = st.columns(3)

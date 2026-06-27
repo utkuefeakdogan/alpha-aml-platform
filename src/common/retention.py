@@ -15,7 +15,6 @@ from pathlib import Path
 # Map policy key -> (env var that overrides the file value)
 ENV_OVERRIDES = {
     "transactions": "TXN_RETENTION_DAYS",
-    "raw_transactions": "RAW_RETENTION_HOURS",
     "flagged_transactions": "FLAGGED_RETENTION_DAYS",
     "sar_reports": "SAR_RETENTION_DAYS",
     "account_window_metrics": "METRICS_RETENTION_HOURS",
@@ -24,7 +23,6 @@ ENV_OVERRIDES = {
 _FALLBACK: dict = {
     "policies": {
         "transactions": {"label": "Transactions", "table": "aml.transactions", "time_column": "ingested_at", "value": 90, "unit": "days"},
-        "raw_transactions": {"label": "Raw transactions", "table": "aml.raw_transactions", "time_column": "ingested_at", "value": 24, "unit": "hours"},
         "flagged_transactions": {"label": "Alerts (flagged)", "table": "aml.flagged_transactions", "time_column": "flagged_at", "value": 180, "unit": "days"},
         "sar_reports": {"label": "SAR reports", "table": "aml.sar_reports", "time_column": "created_at", "value": 180, "unit": "days"},
         "alert_transaction_archive": {"label": "Alert transaction archive", "table": "aml.alert_transaction_archive", "time_column": "archived_at", "value": 180, "unit": "days"},

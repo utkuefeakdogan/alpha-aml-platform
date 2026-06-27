@@ -518,32 +518,39 @@ def run_loop(producer: Producer | None = None) -> None:
 
     try:
         while True:
-            if scheduler.due():
-                scenario = scheduler.pick_scenario()
-                if scenario:
-                    txns = run_scenario_inject(scenario, customer_cache, external_registry, rules)
-                    for txn in txns:
-                        publish(producer, txn)
+            # Per-iteration guard: a transient failure (DB/Kafka blip, empty
+            # customer pool, etc.) must not kill the long-running generator.
+            # Log and continue; the sleep below also prevents a tight crash loop.
+            try:
+                if scheduler.due():
+                    scenario = scheduler.pick_scenario()
+                    if scenario:
+                        txns = run_scenario_inject(scenario, customer_cache, external_registry, rules)
+                        for txn in txns:
+                            publish(producer, txn)
+                        scheduler.report_result(scenario, len(txns))
+                        logger.info(
+                            "Scenario %s (%s): %d txns",
+                            scenario.get("id"),
+                            scenario.get("rule_name"),
+                            len(txns),
+                        )
+                else:
+                    txn = _normal_txn(customer_cache, external_registry)
+                    publish(producer, txn)
                     logger.info(
-                        "Scenario %s (%s): %d txns",
-                        scenario.get("id"),
-                        scenario.get("rule_name"),
-                        len(txns),
+                        "Txn %s %.2f %s (%.2f EUR) %s→%s",
+                        txn["txn_id"][:8],
+                        txn["amount"],
+                        txn["currency"],
+                        txn["amount_eur"],
+                        txn["sender_customer_no"] or "EXT",
+                        txn["receiver_customer_no"] or "EXT",
                     )
-            else:
-                txn = _normal_txn(customer_cache, external_registry)
-                publish(producer, txn)
-                logger.info(
-                    "Txn %s %.2f %s (%.2f EUR) %s→%s",
-                    txn["txn_id"][:8],
-                    txn["amount"],
-                    txn["currency"],
-                    txn["amount_eur"],
-                    txn["sender_customer_no"] or "EXT",
-                    txn["receiver_customer_no"] or "EXT",
-                )
-            maybe_acquire_customer(customer_cache, customer_cache)
-            _trim_cache(customer_cache)
+                maybe_acquire_customer(customer_cache, customer_cache)
+                _trim_cache(customer_cache)
+            except Exception:
+                logger.exception("Generator loop iteration failed; continuing")
             time.sleep(random.uniform(INTERVAL_MIN_SEC, INTERVAL_MAX_SEC))
     except KeyboardInterrupt:
         logger.info("Generator stopped")

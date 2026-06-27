@@ -57,6 +57,12 @@ def _with_alert_priority(flagged: "DataFrame", spark: SparkSession) -> "DataFram
     return joined.withColumn("alert_priority_score", priority).drop("risk_score")
 
 logging.basicConfig(level=logging.INFO)
+try:
+    from src.common.event_log import install_pg_log_handler
+
+    install_pg_log_handler("spark")
+except Exception:  # pragma: no cover - log mirroring is best-effort
+    pass
 logger = logging.getLogger(__name__)
 
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:29092")

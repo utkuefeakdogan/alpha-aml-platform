@@ -11,7 +11,10 @@ from datetime import datetime, timezone
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
+from src.common.event_log import install_pg_log_handler
+
 logging.basicConfig(level=logging.INFO)
+install_pg_log_handler("sar")
 logger = logging.getLogger(__name__)
 
 PG_HOST = os.getenv("POSTGRES_HOST", "postgres")

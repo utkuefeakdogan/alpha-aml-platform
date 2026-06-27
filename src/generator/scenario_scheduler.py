@@ -18,6 +18,10 @@ WAKE_MAX_SEC = float(os.getenv("SCENARIO_WAKE_MAX_SEC", "7200"))
 WAKE_JITTER_SEC = float(os.getenv("SCENARIO_WAKE_JITTER_SEC", "600"))
 DAILY_CAP = int(os.getenv("SCENARIO_DAILY_CAP", "100"))
 RULE_COOLDOWN_SEC = float(os.getenv("SCENARIO_RULE_COOLDOWN_SEC", "10800"))
+# Back-off applied to a scenario whose injection produced 0 transactions, so a
+# scenario that cannot currently emit traffic steps aside instead of monopolizing
+# the scheduler (e.g. an exhausted cohort or an empty target pool).
+EMPTY_COOLDOWN_SEC = float(os.getenv("SCENARIO_EMPTY_COOLDOWN_SEC", "3600"))
 CATALOG_PATH = Path(os.getenv("SCENARIO_CATALOG_PATH", "/app/configs/scenario_catalog.json"))
 
 
@@ -35,6 +39,7 @@ class ScenarioScheduler:
         random.shuffle(self._scenarios)
         self._next_wake: datetime | None = None
         self._last_inject_by_rule: dict[str, datetime] = {}
+        self._empty_until: dict[str, datetime] = {}
         self._schedule_next_wake()
 
     def _schedule_next_wake(self) -> None:
@@ -55,6 +60,9 @@ class ScenarioScheduler:
         last = self._last_inject_by_rule.get(rule)
         if last and (now - last).total_seconds() < RULE_COOLDOWN_SEC:
             return False
+        empty_until = self._empty_until.get(rule)
+        if empty_until and now < empty_until:
+            return False
         return True
 
     def pick_scenario(self) -> dict | None:
@@ -63,14 +71,14 @@ class ScenarioScheduler:
         now = datetime.now(timezone.utc)
         counts_7d = flags_by_rule_last_7d()
 
-        # Hafta içinde henüz alert üretmemiş kurallara öncelik
-        missing_week = [
-            s for s in self._scenarios if counts_7d.get(s["rule_name"], 0) == 0
-        ]
-        if missing_week:
-            pool = [s for s in missing_week if self._eligible(s, now)]
-            if not pool:
-                pool = missing_week
+        # Önce, son 7 günde hiç alert üretmemiş VE şu an uygun (cooldown'da
+        # olmayan) kurallara öncelik ver. Uygun olan yoksa bilerek genel havuza
+        # düşeriz — böylece flag üretemeyen tek bir senaryo (cooldown/back-off'ta)
+        # planlayıcıyı kilitleyemez, diğer üretken senaryolara yol açılır.
+        missing_week = [s for s in self._scenarios if counts_7d.get(s["rule_name"], 0) == 0]
+        eligible_missing = [s for s in missing_week if self._eligible(s, now)]
+        if eligible_missing:
+            pool = eligible_missing
         else:
             eligible = [s for s in self._scenarios if self._eligible(s, now)]
             pool = eligible or list(self._scenarios)
@@ -87,6 +95,22 @@ class ScenarioScheduler:
             counts_7d.get(chosen["rule_name"], 0),
         )
         return chosen
+
+    def report_result(self, scenario: dict | None, n_txns: int) -> None:
+        """Feedback from the generator: if an injection produced no traffic, back
+        the scenario off for a while so it doesn't keep winning empty picks."""
+        if not scenario:
+            return
+        if n_txns <= 0:
+            rule = scenario["rule_name"]
+            self._empty_until[rule] = datetime.now(timezone.utc) + timedelta(
+                seconds=EMPTY_COOLDOWN_SEC
+            )
+            logger.info(
+                "Scenario %s produced 0 txns; backing off for %.0fs",
+                rule,
+                EMPTY_COOLDOWN_SEC,
+            )
 
     def enabled_count(self) -> int:
         return len(self._scenarios)

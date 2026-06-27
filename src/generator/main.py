@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import sys
 
+from src.common.event_log import install_pg_log_handler
 from src.generator.transaction_generator import create_producer, run_loop
 
 logging.basicConfig(
@@ -12,6 +13,7 @@ logging.basicConfig(
     format='{"ts":"%(asctime)s","level":"%(levelname)s","module":"generator","msg":"%(message)s"}',
     datefmt="%Y-%m-%dT%H:%M:%S",
 )
+install_pg_log_handler("generator")
 logger = logging.getLogger(__name__)
 
 

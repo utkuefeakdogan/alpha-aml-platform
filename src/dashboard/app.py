@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+from src.common.event_log import install_pg_log_handler
 from src.dashboard.components import (
     render_airflow_footer,
     render_data_pipeline_panel,
@@ -14,7 +15,9 @@ from src.dashboard.components import (
     render_retention_panel,
     render_risk_pie_chart,
 )
+from src.dashboard.analytics import render_analytics_page
 from src.dashboard.data_quality import render_data_quality_panel
+from src.dashboard.event_log import render_event_log_page
 from src.dashboard.freesql import render_freesql_page
 from src.dashboard.i18n import render_language_selector, t
 from src.dashboard.investigation import render_investigation_page
@@ -105,6 +108,10 @@ def page_data_quality() -> None:
 
 
 def main() -> None:
+    try:
+        install_pg_log_handler("dashboard")
+    except Exception:
+        pass
     _theme()
     for k in ("sar_text", "sar_rid"):
         if k not in st.session_state:
@@ -123,8 +130,10 @@ def main() -> None:
         "SAR Archive",
         "Scenarios",
         "Risk Models",
+        "Analytics",
         "Data Quality",
         "System Health",
+        "Logs",
         "SQL Explorer",
     ]
     inv_id = st.query_params.get("id")
@@ -158,8 +167,10 @@ def main() -> None:
         "Monitoring": page_monitoring,
         "Scenarios": render_scenarios_page,
         "Risk Models": render_risk_models_page,
+        "Analytics": render_analytics_page,
         "Data Quality": page_data_quality,
         "System Health": render_system_health_page,
+        "Logs": render_event_log_page,
         "SQL Explorer": render_freesql_page,
     }[page]()
 

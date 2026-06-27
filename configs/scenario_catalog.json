@@ -59,12 +59,12 @@
       "id": "monthly_peer_flood",
       "rule_name": "monthly_peer_anomaly",
       "title": "Monthly Peer Anomaly",
-      "description": "Unusually high monthly transaction count versus peer baseline.",
+      "description": "Unusually high monthly transaction count versus peer baseline. Not synthetically injected: the rule stays active and is detected organically from genuinely high-frequency accounts.",
       "params_key": "multi_window",
       "generator_handler": "inject_monthly_peer",
       "priority_weight": 0.6,
       "max_txns_per_inject": 4,
-      "enabled": true
+      "enabled": false
     },
     {
       "id": "dormant_wake",

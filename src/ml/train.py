@@ -43,6 +43,12 @@ from sqlalchemy import text
 from src.ml.features import FEATURE_COLUMNS, build_matrix, get_engine, load_features
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+try:
+    from src.common.event_log import install_pg_log_handler
+
+    install_pg_log_handler("ml")
+except Exception:  # pragma: no cover - log mirroring is best-effort
+    pass
 logger = logging.getLogger("ml.train")
 
 RANDOM_STATE = 42

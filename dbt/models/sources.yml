@@ -5,8 +5,6 @@ sources:
     description: Operational AML tables populated by the streaming pipeline
     schema: aml
     tables:
-      - name: raw_transactions
-        description: Legacy raw financial transactions
       - name: flagged_transactions
         description: Transactions flagged by the multi-window rule engine
       - name: sar_reports

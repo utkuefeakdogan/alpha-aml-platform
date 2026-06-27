@@ -9,6 +9,8 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 
+from _event_log import log_dag_failure
+
 POSTGRES_CONN_ID = "postgres_aml"
 
 
@@ -71,7 +73,12 @@ def pipeline_audit(**context) -> dict:
     return result
 
 
-default_args = {"owner": "alpha-aml", "retries": 1, "depends_on_past": False}
+default_args = {
+    "owner": "alpha-aml",
+    "retries": 1,
+    "depends_on_past": False,
+    "on_failure_callback": log_dag_failure,
+}
 
 with DAG(
     dag_id="aml_pipeline_audit",

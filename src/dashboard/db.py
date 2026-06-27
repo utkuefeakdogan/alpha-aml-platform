@@ -1039,3 +1039,324 @@ def insert_sar_report(
                 "filed_by": filed_by,
             },
         )
+
+
+# ---------------------------------------------------------------------------
+# Event / error log (aml.event_log)
+# ---------------------------------------------------------------------------
+
+
+@st.cache_data(ttl=_TTL_FAST, show_spinner=False)
+def fetch_event_log_summary() -> dict:
+    """24h error/warning tiles + per-source/level breakdown for the Logs page."""
+    try:
+        tiles = query_df(
+            """
+            SELECT
+              COUNT(*) FILTER (WHERE level IN ('ERROR','CRITICAL')
+                               AND ts >= NOW() - INTERVAL '24 hours') AS err_24h,
+              COUNT(*) FILTER (WHERE level = 'WARNING'
+                               AND ts >= NOW() - INTERVAL '24 hours') AS warn_24h,
+              COUNT(*) FILTER (WHERE ts >= NOW() - INTERVAL '24 hours') AS total_24h
+            FROM aml.event_log
+            """
+        ).iloc[0]
+        by_source = query_df(
+            """
+            SELECT source, level, COUNT(*) AS cnt
+            FROM aml.event_log
+            WHERE ts >= NOW() - INTERVAL '24 hours'
+            GROUP BY source, level
+            ORDER BY cnt DESC
+            """
+        )
+        return {
+            "err_24h": int(tiles["err_24h"]),
+            "warn_24h": int(tiles["warn_24h"]),
+            "total_24h": int(tiles["total_24h"]),
+            "by_source": by_source,
+        }
+    except Exception:
+        return {"err_24h": 0, "warn_24h": 0, "total_24h": 0, "by_source": pd.DataFrame()}
+
+
+@st.cache_data(ttl=_TTL_SLOW, show_spinner=False)
+def fetch_event_log_sources() -> list[str]:
+    try:
+        df = query_df("SELECT DISTINCT source FROM aml.event_log ORDER BY source")
+        return df["source"].tolist()
+    except Exception:
+        return []
+
+
+@st.cache_data(ttl=_TTL_FAST, show_spinner=False)
+def fetch_event_log(
+    levels: tuple[str, ...] = (),
+    sources: tuple[str, ...] = (),
+    since_hours: int | None = 24,
+    search: str | None = None,
+    limit: int = 500,
+) -> pd.DataFrame:
+    """Filtered event-log rows (newest first). Tuple args keep the cache key hashable."""
+    clauses: list[str] = []
+    params: dict = {"limit": limit}
+    if since_hours:
+        clauses.append("ts >= NOW() - make_interval(hours => :since_hours)")
+        params["since_hours"] = int(since_hours)
+    if levels:
+        clauses.append("level = ANY(:levels)")
+        params["levels"] = list(levels)
+    if sources:
+        clauses.append("source = ANY(:sources)")
+        params["sources"] = list(sources)
+    if search:
+        clauses.append("(message ILIKE :search OR logger ILIKE :search)")
+        params["search"] = f"%{search}%"
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    try:
+        return query_df(
+            f"""
+            SELECT id, ts, source, level, logger, message, detail
+            FROM aml.event_log
+            {where}
+            ORDER BY ts DESC
+            LIMIT :limit
+            """,
+            params,
+        )
+    except Exception:
+        return pd.DataFrame()
+
+
+# ---------------------------------------------------------------------------
+# Analytics (read-only aggregates for the Analytics page)
+# ---------------------------------------------------------------------------
+
+
+@st.cache_data(ttl=_TTL_SLOW, show_spinner=False)
+def fetch_txn_trend(days: int = 30) -> pd.DataFrame:
+    """Daily transaction count + EUR volume over the trailing window."""
+    try:
+        return query_df(
+            """
+            SELECT date_trunc('day', ts)::date AS day,
+                   COUNT(*) AS txn_count,
+                   COALESCE(SUM(amount_eur), 0) AS volume_eur
+            FROM aml.transactions
+            WHERE ts >= NOW() - make_interval(days => :days)
+            GROUP BY 1
+            ORDER BY 1
+            """,
+            {"days": int(days)},
+        )
+    except Exception:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=_TTL_SLOW, show_spinner=False)
+def fetch_alert_trend(days: int = 30) -> pd.DataFrame:
+    """Daily alerts and alerts-per-1000-transactions ratio."""
+    try:
+        return query_df(
+            """
+            WITH a AS (
+                SELECT date_trunc('day', flagged_at)::date AS day, COUNT(*) AS alerts
+                FROM aml.flagged_transactions
+                WHERE flagged_at >= NOW() - make_interval(days => :days)
+                GROUP BY 1
+            ), t AS (
+                SELECT date_trunc('day', ts)::date AS day, COUNT(*) AS txns
+                FROM aml.transactions
+                WHERE ts >= NOW() - make_interval(days => :days)
+                GROUP BY 1
+            )
+            SELECT t.day,
+                   COALESCE(a.alerts, 0) AS alerts,
+                   t.txns,
+                   ROUND(1000.0 * COALESCE(a.alerts, 0) / NULLIF(t.txns, 0), 2) AS alerts_per_1k
+            FROM t LEFT JOIN a ON a.day = t.day
+            ORDER BY t.day
+            """,
+            {"days": int(days)},
+        )
+    except Exception:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=_TTL_SLOW, show_spinner=False)
+def fetch_acquisition_trend(days: int = 90) -> pd.DataFrame:
+    """New customers per day, broken down by onboarding channel."""
+    try:
+        return query_df(
+            """
+            SELECT date_trunc('day', l.acquired_at)::date AS day,
+                   COALESCE(c.onboarding_channel, 'Unknown') AS channel,
+                   COUNT(*) AS new_customers
+            FROM aml.customer_acquisition_log l
+            LEFT JOIN aml.customers c ON c.customer_id = l.customer_id
+            WHERE l.acquired_at >= NOW() - make_interval(days => :days)
+            GROUP BY 1, 2
+            ORDER BY 1
+            """,
+            {"days": int(days)},
+        )
+    except Exception:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=_TTL_SLOW, show_spinner=False)
+def fetch_segmentation() -> dict:
+    """30-day volume + alert rate by customer segment, onboarding channel and txn type."""
+
+    def _by(dim_expr: str, join_customers: bool) -> pd.DataFrame:
+        cust_join = (
+            "JOIN aml.customers c ON c.customer_id = COALESCE(t.sender_customer_no, t.sender_id)"
+            if join_customers
+            else ""
+        )
+        alert_join = (
+            "JOIN aml.customers c ON c.customer_id = f.customer_id"
+            if join_customers
+            else "JOIN aml.transactions t ON t.txn_id = f.txn_id"
+        )
+        try:
+            return query_df(
+                f"""
+                WITH txns AS (
+                    SELECT {dim_expr} AS dim,
+                           COUNT(*) AS txn_count,
+                           COALESCE(SUM(t.amount_eur), 0) AS volume
+                    FROM aml.transactions t
+                    {cust_join}
+                    WHERE t.ts >= NOW() - INTERVAL '30 days'
+                    GROUP BY 1
+                ), alerts AS (
+                    SELECT {dim_expr} AS dim, COUNT(*) AS alert_count
+                    FROM aml.flagged_transactions f
+                    {alert_join}
+                    WHERE f.flagged_at >= NOW() - INTERVAL '30 days'
+                    GROUP BY 1
+                )
+                SELECT txns.dim,
+                       txns.txn_count,
+                       txns.volume,
+                       COALESCE(alerts.alert_count, 0) AS alert_count,
+                       ROUND(1000.0 * COALESCE(alerts.alert_count, 0)
+                             / NULLIF(txns.txn_count, 0), 2) AS alerts_per_1k
+                FROM txns LEFT JOIN alerts ON alerts.dim = txns.dim
+                WHERE txns.dim IS NOT NULL
+                ORDER BY txns.volume DESC
+                """
+            )
+        except Exception:
+            return pd.DataFrame()
+
+    return {
+        "by_segment": _by("c.segment", join_customers=True),
+        "by_channel": _by("c.onboarding_channel", join_customers=True),
+        "by_txn_type": _by("t.txn_type", join_customers=False),
+    }
+
+
+@st.cache_data(ttl=_TTL_SLOW, show_spinner=False)
+def fetch_geo_corridors(limit: int = 12) -> pd.DataFrame:
+    """Top cross-border corridors (sender -> receiver country) by 30-day volume."""
+    try:
+        return query_df(
+            """
+            WITH corr AS (
+                SELECT t.txn_id, t.sender_country, t.receiver_country, t.amount_eur
+                FROM aml.transactions t
+                WHERE t.ts >= NOW() - INTERVAL '30 days'
+                  AND t.sender_country IS NOT NULL
+                  AND t.receiver_country IS NOT NULL
+                  AND t.sender_country <> t.receiver_country
+            )
+            SELECT c.sender_country, c.receiver_country,
+                   COUNT(*) AS txn_count,
+                   COALESCE(SUM(c.amount_eur), 0) AS volume,
+                   COUNT(f.txn_id) AS alert_count
+            FROM corr c
+            LEFT JOIN aml.flagged_transactions f ON f.txn_id = c.txn_id
+            GROUP BY 1, 2
+            ORDER BY volume DESC
+            LIMIT :limit
+            """,
+            {"limit": int(limit)},
+        )
+    except Exception:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=_TTL_SLOW, show_spinner=False)
+def fetch_risk_analytics() -> dict:
+    """Risk-band incidence, PEP exposure and per-rule alert priority."""
+
+    def _q(sql: str) -> pd.DataFrame:
+        try:
+            return query_df(sql)
+        except Exception:
+            return pd.DataFrame()
+
+    # Incidence is measured against ACTIVE customers (transacted in the last
+    # 30d), not the full ~1.2M base. Alerts can only arise from active accounts,
+    # so dividing by the whole base yields a microscopic, near-zero rate; the
+    # active denominator keeps the band/PEP gradient visible and meaningful.
+    bands = _q(
+        """
+        WITH active AS (
+            SELECT DISTINCT COALESCE(sender_customer_no, sender_id) AS customer_id
+            FROM aml.transactions
+            WHERE ts >= NOW() - INTERVAL '30 days'
+        ), banded AS (
+            SELECT c.customer_id,
+                   CASE WHEN c.risk_score >= 75 THEN 'High (75-100)'
+                        WHEN c.risk_score >= 50 THEN 'Medium (50-74)'
+                        WHEN c.risk_score >= 25 THEN 'Low (25-49)'
+                        ELSE 'Minimal (0-24)' END AS band
+            FROM active a JOIN aml.customers c ON c.customer_id = a.customer_id
+        ), alerts AS (
+            SELECT DISTINCT customer_id
+            FROM aml.flagged_transactions
+            WHERE flagged_at >= NOW() - INTERVAL '30 days'
+        )
+        SELECT b.band,
+               COUNT(*) AS active_customers,
+               COUNT(al.customer_id) AS flagged_customers
+        FROM banded b LEFT JOIN alerts al ON al.customer_id = b.customer_id
+        GROUP BY b.band
+        """
+    )
+    pep = _q(
+        """
+        WITH active AS (
+            SELECT DISTINCT COALESCE(sender_customer_no, sender_id) AS customer_id
+            FROM aml.transactions
+            WHERE ts >= NOW() - INTERVAL '30 days'
+        ), joined AS (
+            SELECT c.customer_id, c.is_pep
+            FROM active a JOIN aml.customers c ON c.customer_id = a.customer_id
+        ), alerts AS (
+            SELECT DISTINCT customer_id
+            FROM aml.flagged_transactions
+            WHERE flagged_at >= NOW() - INTERVAL '30 days'
+        )
+        SELECT j.is_pep,
+               COUNT(*) AS active_customers,
+               COUNT(al.customer_id) AS flagged_customers
+        FROM joined j LEFT JOIN alerts al ON al.customer_id = j.customer_id
+        GROUP BY j.is_pep
+        """
+    )
+    priority = _q(
+        """
+        SELECT rule_name,
+               ROUND(AVG(alert_priority_score), 1) AS avg_priority,
+               COUNT(*) AS alerts
+        FROM aml.flagged_transactions
+        WHERE flagged_at >= NOW() - INTERVAL '30 days'
+        GROUP BY rule_name
+        ORDER BY alerts DESC
+        """
+    )
+    return {"bands": bands, "pep": pep, "priority": priority}

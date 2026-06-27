@@ -9,10 +9,13 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 
+from _event_log import log_dag_failure
+
 default_args = {
     "owner": "alpha-aml",
     "retries": 1,
     "depends_on_past": False,
+    "on_failure_callback": log_dag_failure,
 }
 
 

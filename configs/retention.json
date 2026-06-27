@@ -9,14 +9,6 @@
       "unit": "days",
       "description": "Full enriched transaction history kept for investigation, customer profiling and analytics."
     },
-    "raw_transactions": {
-      "label": "Raw transactions",
-      "table": "aml.raw_transactions",
-      "time_column": "ingested_at",
-      "value": 24,
-      "unit": "hours",
-      "description": "Landing-zone copy only needed briefly for reprocessing/debug; safe to expire fast."
-    },
     "flagged_transactions": {
       "label": "Alerts (flagged)",
       "table": "aml.flagged_transactions",

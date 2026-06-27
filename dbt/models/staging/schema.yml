@@ -1,23 +1,6 @@
 version: 2
 
 models:
-  - name: stg_raw_transactions
-    description: Staging view of raw transactions for lineage tracking
-    columns:
-      - name: txn_id
-        description: Unique transaction ID
-        tests:
-          - not_null
-          - unique
-      - name: account_id
-        description: Account identifier
-        tests:
-          - not_null
-      - name: amount
-        description: Transaction amount in original currency
-        tests:
-          - not_null
-
   - name: stg_flagged_transactions
     description: Staging view of rule-engine flagged transactions
     columns:

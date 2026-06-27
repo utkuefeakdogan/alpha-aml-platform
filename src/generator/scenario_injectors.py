@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import random
-from datetime import datetime, timedelta, timezone
 from typing import Callable
 
 from src.generator.customer_loader import (
@@ -22,15 +21,9 @@ from src.generator.transaction_generator import (
 
 Handler = Callable[..., list[dict]]
 
-# --- monthly_peer build-up state ---------------------------------------------
-# A small fixed cohort of accounts per calendar month receives a few small txns
-# every 2-3 days, so their monthly window count climbs past the anomaly
-# threshold gradually (realistic peer anomaly) instead of a single huge burst.
-_MONTHLY_COHORT_SIZE = 4
-_FAR_PAST = datetime(2000, 1, 1, tzinfo=timezone.utc)
-_monthly_cohort_month: str | None = None
-_monthly_cohort: list[CustomerRecord] = []
-_monthly_next_eligible: dict[str, datetime] = {}
+# Note: monthly_peer_anomaly is intentionally NOT injected synthetically. The
+# rule stays active in the streaming engine and is detected organically from
+# genuinely high-frequency accounts (monthly txn_count > baseline x multiplier).
 
 
 def _active_pool(cache: dict[str, CustomerRecord]) -> dict[str, CustomerRecord]:
@@ -167,71 +160,6 @@ def inject_weekly_volume(
     ]
 
 
-def _refresh_monthly_cohort(now: datetime) -> None:
-    """Pick a fresh cohort of distinct active accounts at the start of each month."""
-    global _monthly_cohort_month, _monthly_cohort, _monthly_next_eligible
-    month_key = now.strftime("%Y-%m")
-    if _monthly_cohort_month == month_key and _monthly_cohort:
-        return
-    cohort: dict[str, CustomerRecord] = {}
-    attempts = 0
-    while len(cohort) < _MONTHLY_COHORT_SIZE and attempts < 25:
-        attempts += 1
-        c = fetch_random_active_customer()
-        if c:
-            cohort[c.customer_id] = c
-    _monthly_cohort = list(cohort.values())
-    _monthly_cohort_month = month_key
-    _monthly_next_eligible = {}
-
-
-def inject_monthly_peer(
-    cache: dict[str, CustomerRecord],
-    external_registry: dict[str, ExternalParty],
-    rules: dict,
-    max_txns: int = 4,
-) -> list[dict]:
-    # Build-up pattern: every 2-3 days drip a few small txns onto one cohort
-    # account so its monthly count slowly exceeds the peer-anomaly threshold.
-    now = datetime.now(timezone.utc)
-    _refresh_monthly_cohort(now)
-    if not _monthly_cohort:
-        return []
-
-    eligible = [
-        c
-        for c in _monthly_cohort
-        if _monthly_next_eligible.get(c.customer_id, _FAR_PAST) <= now
-    ]
-    if not eligible:
-        return []
-
-    sender = random.choice(eligible)
-    cache[sender.customer_id] = sender
-    n = random.randint(2, max(2, max_txns))
-    txns = []
-    for _ in range(n):
-        rname, rid, _ = _external_party(external_registry)
-        txns.append(
-            _build_outbound(
-                cache,
-                sender,
-                None,
-                rname,
-                rid,
-                external_registry=external_registry,
-                txn_category="Wire",
-                txn_type="FAST",
-                amount=round(random.uniform(100, 800), 2),
-                currency="EUR",
-                is_fraud=True,
-                fraud_type="monthly_peer",
-            )
-        )
-    _monthly_next_eligible[sender.customer_id] = now + timedelta(days=random.uniform(2, 3))
-    return txns
-
-
 def inject_dormant_reactivation(
     cache: dict[str, CustomerRecord],
     external_registry: dict[str, ExternalParty],
@@ -313,7 +241,6 @@ HANDLERS: dict[str, Handler] = {
     "inject_smurfing": inject_smurfing,
     "inject_daily_velocity": inject_daily_velocity,
     "inject_weekly_volume": inject_weekly_volume,
-    "inject_monthly_peer": inject_monthly_peer,
     "inject_dormant_reactivation": inject_dormant_reactivation,
     "inject_mule_inbound": inject_mule_inbound,
 }

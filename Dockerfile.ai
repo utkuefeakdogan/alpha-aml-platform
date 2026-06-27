@@ -5,6 +5,7 @@ WORKDIR /app
 RUN pip install --no-cache-dir psycopg2-binary openai
 
 COPY src/ai_models/ /app/src/ai_models/
+COPY src/common/ /app/src/common/
 
 ENV PYTHONPATH=/app
 CMD ["python", "/app/src/ai_models/sar_generator.py"]

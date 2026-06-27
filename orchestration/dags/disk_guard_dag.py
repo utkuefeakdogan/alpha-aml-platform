@@ -17,6 +17,8 @@ if "/opt/airflow" not in sys.path:
     sys.path.insert(0, "/opt/airflow")
 from src.common.retention import guard
 
+from _event_log import log_dag_failure
+
 logger = logging.getLogger(__name__)
 
 POSTGRES_CONN_ID = "postgres_aml"
@@ -131,7 +133,12 @@ def disk_guard(**context) -> dict:
     return result
 
 
-default_args = {"owner": "alpha-aml", "retries": 0, "depends_on_past": False}
+default_args = {
+    "owner": "alpha-aml",
+    "retries": 0,
+    "depends_on_past": False,
+    "on_failure_callback": log_dag_failure,
+}
 
 with DAG(
     dag_id="disk_guard_dag",

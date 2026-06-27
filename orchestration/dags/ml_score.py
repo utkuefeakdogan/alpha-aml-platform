@@ -14,12 +14,15 @@ from datetime import datetime
 from airflow import DAG
 from airflow.operators.bash import BashOperator
 
+from _event_log import log_dag_failure
+
 PROJECT_DIR = os.getenv("AIRFLOW_PROJECT_DIR", "/opt/airflow")
 
 default_args = {
     "owner": "alpha-aml",
     "retries": 1,
     "depends_on_past": False,
+    "on_failure_callback": log_dag_failure,
 }
 
 with DAG(
