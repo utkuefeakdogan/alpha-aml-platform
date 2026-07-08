@@ -217,6 +217,46 @@ DARK_THEME_CSS = """
     }
 
     /* ---------- Onboarding / Overview page ---------- */
+    .ob-author {
+        display: flex;
+        align-items: flex-start;
+        gap: 1.1rem;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 1.25rem 1.5rem;
+        margin-bottom: 1.25rem;
+    }
+    .ob-author-initials {
+        flex-shrink: 0;
+        width: 3rem;
+        height: 3rem;
+        border-radius: 50%;
+        background: rgba(56,189,248,0.14);
+        border: 1px solid rgba(56,189,248,0.35);
+        color: var(--accent-soft);
+        font-size: 0.85rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .ob-author-text {
+        color: var(--text-body);
+        font-size: 1rem;
+        line-height: 1.65;
+        max-width: 60rem;
+    }
+    .ob-author-text a {
+        color: var(--accent-soft);
+        text-decoration: none;
+        border-bottom: 1px solid rgba(56,189,248,0.35);
+    }
+    .ob-author-text a:hover {
+        color: var(--accent);
+        border-bottom-color: var(--accent);
+    }
     .ob-hero {
         background: linear-gradient(135deg, var(--panel-alt) 0%, #1e3a8a 100%);
         border: 1px solid var(--border);

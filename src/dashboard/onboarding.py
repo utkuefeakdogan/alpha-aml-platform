@@ -37,6 +37,18 @@ def _cards(items: list[dict], columns: int = 3, kind: str = "ob-card") -> None:
         st.write("")
 
 
+def _author() -> None:
+    st.markdown(
+        f"""
+        <div class='ob-author'>
+            <div class='ob-author-initials'>UEA</div>
+            <div class='ob-author-text'>{t('overview.author.body')}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _hero() -> None:
     st.markdown(
         f"""
@@ -336,6 +348,7 @@ def _data_and_protection() -> None:
 
 
 def render_onboarding_page() -> None:
+    _author()
     _hero()
     _by_the_numbers()
     _architecture()
