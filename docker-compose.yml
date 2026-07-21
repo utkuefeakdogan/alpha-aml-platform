@@ -255,11 +255,18 @@ services:
       PG_DB_WARN_BYTES: ${PG_DB_WARN_BYTES:-32212254720}
       METRICS_EMERGENCY_MAX_ROWS: ${METRICS_EMERGENCY_MAX_ROWS:-200000}
       SAR_MOCK_MODE: ${SAR_MOCK_MODE:-true}
+      # Gold → BigQuery export bridge (export_to_bigquery DAG)
+      GCP_PROJECT: ${GCP_PROJECT:-}
+      GCS_BUCKET: ${GCS_BUCKET:-}
+      BQ_DATASET: ${BQ_DATASET:-aml_analytics}
+      BQ_LOCATION: ${BQ_LOCATION:-EU}
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-/opt/airflow/secrets/gcp-sa.json}
     volumes:
       - ./orchestration/dags:/opt/airflow/dags
       - ./dbt:/opt/airflow/dbt
       - ./src:/opt/airflow/src
       - ./configs:/opt/airflow/configs
+      - ./secrets:/opt/airflow/secrets:ro
       - /:/host:ro
     command: >
       bash -c "airflow connections add postgres_aml --conn-type postgres --conn-host postgres --conn-login $${POSTGRES_USER:-user} --conn-password $${POSTGRES_PASSWORD:-password} --conn-schema datadb --conn-port 5432 2>/dev/null || true &&

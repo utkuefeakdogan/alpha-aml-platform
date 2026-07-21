@@ -40,20 +40,24 @@ flowchart LR
   pg --> sar["sar-worker<br/>GenAI SAR drafts"]
   dbt --> pg
   sar --> pg
+  dbt -->|"Parquet"| gcs["GCS staging"]
+  gcs -->|"load"| bq["BigQuery<br/>aml_analytics"]
 
   subgraph orchestration [Airflow ops]
     direction TB
     a1["cleanup / retention"]
     a2["aml_pipeline_audit"]
     a3["dbt_transform"]
-    a4["trigger_sar"]
-    a5["disk_guard"]
+    a4["export_to_bigquery"]
+    a5["trigger_sar"]
+    a6["disk_guard"]
   end
   orchestration --> pg
   orchestration --> dbt
+  orchestration --> gcs
 ```
 
-**End-to-end:** `transaction-gen` → Kafka topic `transactions.raw` → `spark-job` (30s micro-batches: normalize → enrich → window aggregates → 8 AML rules → alert budgeting → priority scoring) → Postgres `aml.*` → dbt gold models / Streamlit / `sar-worker`.
+**End-to-end:** `transaction-gen` → Kafka topic `transactions.raw` → `spark-job` (30s micro-batches: normalize → enrich → window aggregates → 8 AML rules → alert budgeting → priority scoring) → Postgres `aml.*` → dbt gold models / Streamlit / `sar-worker`. Scheduled Gold sync: Postgres `gold.*` → Parquet → GCS → BigQuery (`aml_analytics`).
 
 ---
 
@@ -104,6 +108,7 @@ Thresholds live in [`configs/rules.json`](configs/rules.json) and the scenario c
 | Packaging / ops | Docker Compose, profiles, Makefile |
 | Edge / TLS | Caddy reverse proxy, automatic Let's Encrypt HTTPS |
 | CI | GitHub Actions — ruff + dbt parse on every push/PR |
+| Cloud warehouse | BigQuery (`aml_analytics`) via GCS Parquet export bridge |
 
 ---
 
@@ -138,6 +143,29 @@ make edge                     # starts Caddy (auto Let's Encrypt) + DuckDNS upda
 ```
 
 Caddy terminates TLS and reverse-proxies to Streamlit over the internal Docker network; Postgres, Kafka and the raw dashboard port stay off the public internet.
+
+### BigQuery Gold sync (optional cloud warehouse bridge)
+
+Daily Airflow DAG `export_to_bigquery` copies Postgres **Gold** tables to BigQuery:
+
+`gold.*` → Parquet → **GCS** → **BigQuery** dataset `aml_analytics` (`WRITE_TRUNCATE`).
+
+1. GCP project with billing + **BigQuery API** + **Cloud Storage API**
+2. Service account JSON at `./secrets/gcp-sa.json` (gitignored)
+3. GCS bucket (example: `alpha-aml-staging`) and IAM on the SA:
+   - `roles/bigquery.dataEditor`
+   - `roles/bigquery.jobUser`
+   - `roles/storage.objectAdmin` (on that bucket)
+4. In `.env`:
+   ```
+   GCP_PROJECT=alpha-aml
+   GCS_BUCKET=alpha-aml-staging
+   BQ_DATASET=aml_analytics
+   BQ_LOCATION=EU
+   GOOGLE_APPLICATION_CREDENTIALS=/opt/airflow/secrets/gcp-sa.json
+   ```
+5. Rebuild/restart ops: `docker compose --profile ops up -d --build airflow`
+6. Trigger DAG `export_to_bigquery` (or wait for `@daily`). Proof: BigQuery console → `aml_analytics` tables with row counts.
 
 ---
 
