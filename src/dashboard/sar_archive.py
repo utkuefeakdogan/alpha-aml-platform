@@ -6,7 +6,6 @@ import streamlit as st
 
 from src.dashboard.i18n import t
 
-from src.dashboard.components import render_open_alerts_table
 from src.dashboard.db import (
     fetch_archived_alerts,
     fetch_archived_alerts_count,

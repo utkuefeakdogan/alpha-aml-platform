@@ -6,7 +6,6 @@ import html
 import time
 import urllib.parse
 
-import pandas as pd
 import streamlit as st
 
 from src.dashboard.db import (

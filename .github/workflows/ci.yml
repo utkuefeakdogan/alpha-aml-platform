@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-parse:
+    name: ruff + dbt parse
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff dbt-postgres==1.7.19
+
+      - name: Ruff (src + Airflow DAGs)
+        run: ruff check src orchestration/dags
+
+      - name: dbt parse
+        working-directory: dbt
+        run: dbt parse --profiles-dir . --target ci
+        env:
+          # profiles.yml ci target does not need a live Postgres for parse
+          POSTGRES_HOST: localhost

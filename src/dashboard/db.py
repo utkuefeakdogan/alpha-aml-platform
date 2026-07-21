@@ -10,7 +10,6 @@ import streamlit as st
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
-from src.dashboard.rules_manager import load_rules
 
 # Cache TTLs (seconds) — keeps the memory-constrained DB from being hammered by
 # every dashboard rerun / concurrent viewer. Live-ish data uses a short TTL;

@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 import yaml
-from pyspark.sql import SparkSession
+from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import (
     BooleanType,
@@ -28,7 +28,7 @@ from src.processing.alert_budget import apply_alert_budget
 from src.processing.window_engine import compute_window_metrics, evaluate_rules
 
 
-def _with_alert_priority(flagged: "DataFrame", spark: SparkSession) -> "DataFrame":
+def _with_alert_priority(flagged: DataFrame, spark: SparkSession) -> DataFrame:
     """Blend rule severity + amount with customer KYC risk (60/40)."""
     customers = (
         spark.read.format("jdbc")

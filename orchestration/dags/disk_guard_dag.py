@@ -96,7 +96,6 @@ def disk_guard(**context) -> dict:
         level = "critical" if level == "critical" else "warn"
         actions.append(f"pg_db_size_{pg['db_gb']}gb")
 
-    emergency_truncated = 0
     if (
         (disk and disk["used_pct"] >= DISK_CRITICAL_PCT)
         or pg["metrics_rows"] > METRICS_EMERGENCY_MAX_ROWS
@@ -104,7 +103,6 @@ def disk_guard(**context) -> dict:
         conn = hook.get_conn()
         cur = conn.cursor()
         cur.execute("TRUNCATE aml.account_window_metrics")
-        emergency_truncated = cur.rowcount if cur.rowcount >= 0 else pg["metrics_rows"]
         conn.commit()
         cur.close()
         conn.close()

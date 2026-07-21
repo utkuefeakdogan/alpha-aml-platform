@@ -10,3 +10,13 @@ alpha_aml:
       dbname: "{{ env_var('POSTGRES_DB', 'datadb') }}"
       schema: aml
       threads: 2
+    # CI target: used only for `dbt parse` in GitHub Actions (no live DB required).
+    ci:
+      type: postgres
+      host: localhost
+      port: 5432
+      user: ci
+      password: ci
+      dbname: ci
+      schema: aml
+      threads: 1

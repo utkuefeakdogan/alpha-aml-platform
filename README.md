@@ -10,6 +10,7 @@
 ![Airflow](https://img.shields.io/badge/Airflow-2.8-017CEE?logo=apacheairflow&logoColor=white)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.32-FF4B4B?logo=streamlit&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker%20Compose-2496ED?logo=docker&logoColor=white)
+![CI](https://github.com/utkuefeakdogan/alpha-aml-platform/actions/workflows/ci.yml/badge.svg)
 
 ### 🔗 Live demo: **[utku-efe-aml.duckdns.org](https://utku-efe-aml.duckdns.org)**
 
@@ -102,6 +103,7 @@ Thresholds live in [`configs/rules.json`](configs/rules.json) and the scenario c
 | GenAI | OpenAI (optional; mock fallback) |
 | Packaging / ops | Docker Compose, profiles, Makefile |
 | Edge / TLS | Caddy reverse proxy, automatic Let's Encrypt HTTPS |
+| CI | GitHub Actions — ruff + dbt parse on every push/PR |
 
 ---
 
@@ -155,7 +157,9 @@ alpha-aml-platform/
 ├── orchestration/      # Airflow DAGs (cleanup, audit, dbt_transform, sar, ml_score, disk_guard)
 ├── docker/             # init SQL + numbered schema migrations + Caddyfile
 ├── scripts/            # start.sh, disk_guard.sh
+├── .github/workflows/  # CI: ruff + dbt parse
 ├── docker-compose.yml  # service stack (profiles: core / app / ops / edge)
+├── pyproject.toml      # ruff config
 └── Makefile
 ```
 
@@ -177,6 +181,7 @@ alpha-aml-platform/
 - **Config-driven retention** — lifecycle rules in [`configs/retention.json`](configs/retention.json), enforced by Airflow, so the database never grows unbounded.
 - **Self-healing ops** — a disk/memory guard runs every 15 minutes and emergency-trims the fastest-growing table before space runs out; services use `restart: unless-stopped`.
 - **Idempotent stream writes** — window metrics use calendar-aligned `window_start` + `INSERT … ON CONFLICT DO UPDATE` upserts to keep operational tables bounded.
+- **CI on every push** — GitHub Actions runs **ruff** over `src/` and Airflow DAGs, then **`dbt parse`** against the project (see [`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
 
 ---
 

@@ -6,7 +6,7 @@ import logging
 import sys
 
 from src.common.event_log import install_pg_log_handler
-from src.generator.transaction_generator import create_producer, run_loop
+from src.generator.transaction_generator import run_loop
 
 logging.basicConfig(
     level=logging.INFO,

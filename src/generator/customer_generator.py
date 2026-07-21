@@ -7,7 +7,6 @@ import os
 import random
 from datetime import date, datetime, timedelta, timezone
 
-import psycopg2
 from psycopg2.extras import RealDictCursor
 
 from src.generator.address_types import CITIES, random_address_types
@@ -88,7 +87,6 @@ def _ensure_schedule(now: datetime) -> None:
 
 
 def _insert_customer(cur, cid: str) -> CustomerRecord:
-    g = random.randint(1, 99999)
     segment = random.choices(
         ["retail", "premium", "corporate"], weights=[70, 20, 10], k=1
     )[0]
