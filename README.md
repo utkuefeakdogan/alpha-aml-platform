@@ -202,9 +202,9 @@ alpha-aml-platform/
 
 ## What this project demonstrates
 
-**Data Engineering** — event streaming (Kafka), stateful stream processing (Spark Structured Streaming, windowed aggregates), dimensional/medallion modelling (dbt Bronze/Silver/Gold with tested lineage), workflow orchestration (Airflow), containerization (Docker Compose), and pragmatic resource/cost optimization on constrained infrastructure.
+**Data Engineering** — event streaming (Kafka), stateful stream processing (Spark Structured Streaming, windowed aggregates), dimensional/medallion modelling (dbt Bronze/Silver/Gold with tested lineage), workflow orchestration (Airflow), a **cloud analytics bridge** (Postgres Gold → Parquet → GCS → **BigQuery**), thin **Terraform** for the BQ dataset / staging bucket / IAM, containerization (Docker Compose), and pragmatic resource/cost optimization on constrained infrastructure (6 GB VM; warehouse growth stays off-host).
 
-**Data Analysis** — a tested SQL warehouse, business KPIs (alert volumes, risk-band distribution, daily fraud summaries, customer 360), an interactive compliance dashboard, and a read-only SQL explorer — framed around real AML/banking metrics (SAR, KYC, PEP, typologies).
+**Data Analysis** — a tested SQL warehouse on Postgres plus the same Gold marts in **BigQuery** (`aml_analytics`), business KPIs (alert volumes, risk-band distribution, daily fraud summaries, customer 360), an interactive compliance dashboard, and a read-only SQL explorer — framed around real AML/banking metrics (SAR, KYC, PEP, typologies).
 
 **Data Science** — a live ML risk layer (`src/ml/`, scored every 6h by the `ml_score` Airflow DAG): engineered 30-day behavioral features feed an **unsupervised Isolation Forest** (anomaly scoring for every active customer) and a **supervised Gradient Boosting triage** model trained on the rule-engine alert label and evaluated with stratified cross-validation (ROC-AUC, PR-AUC, feature importance) — surfaced in the `Risk Models` dashboard page alongside a rules-vs-ML overlap analysis. Labels are scarce by design (alerts are budget-capped), so metrics are reported honestly with their sample sizes and improve as the system accumulates alerts.
 
@@ -217,6 +217,8 @@ alpha-aml-platform/
 - **Self-healing ops** — a disk/memory guard runs every 15 minutes and emergency-trims the fastest-growing table before space runs out; services use `restart: unless-stopped`.
 - **Idempotent stream writes** — window metrics use calendar-aligned `window_start` + `INSERT … ON CONFLICT DO UPDATE` upserts to keep operational tables bounded.
 - **CI on every push** — GitHub Actions runs **ruff** over `src/` and Airflow DAGs, then **`dbt parse`** against the project (see [`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+- **Cloud warehouse bridge** — daily Airflow DAG `export_to_bigquery` snapshots Gold to Parquet → **GCS** → **BigQuery** (`WRITE_TRUNCATE`); staging objects older than 7 days are pruned so cloud cost stays near zero on a free-tier project.
+- **Thin Terraform (IaC)** — [`infra/terraform`](infra/terraform) manages the BigQuery dataset, GCS staging bucket (+ lifecycle) and least-privilege sync-SA IAM — applied on the Oracle VM, not a second warehouse stack.
 
 ---
 
