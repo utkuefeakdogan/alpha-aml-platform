@@ -261,6 +261,7 @@ services:
       BQ_DATASET: ${BQ_DATASET:-aml_analytics}
       BQ_LOCATION: ${BQ_LOCATION:-EU}
       GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-/opt/airflow/secrets/gcp-sa.json}
+      GCS_RETENTION_DAYS: ${GCS_RETENTION_DAYS:-7}
     volumes:
       - ./orchestration/dags:/opt/airflow/dags
       - ./dbt:/opt/airflow/dbt

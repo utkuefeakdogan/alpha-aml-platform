@@ -1,0 +1,7 @@
+project_id           = "alpha-aml"
+bq_dataset           = "aml_analytics"
+bq_location          = "EU"
+gcs_bucket           = "alpha-aml-staging"
+gcs_location         = "EUROPE-WEST1"
+gcs_retention_days   = 7
+sync_sa_email        = "aml-bq-sync@alpha-aml.iam.gserviceaccount.com"

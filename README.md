@@ -109,6 +109,7 @@ Thresholds live in [`configs/rules.json`](configs/rules.json) and the scenario c
 | Edge / TLS | Caddy reverse proxy, automatic Let's Encrypt HTTPS |
 | CI | GitHub Actions — ruff + dbt parse on every push/PR |
 | Cloud warehouse | BigQuery (`aml_analytics`) via GCS Parquet export bridge |
+| IaC | Terraform (BigQuery dataset / GCS staging / IAM) — thin |
 
 ---
 
@@ -166,6 +167,12 @@ Daily Airflow DAG `export_to_bigquery` copies Postgres **Gold** tables to BigQue
    ```
 5. Rebuild/restart ops: `docker compose --profile ops up -d --build airflow`
 6. Trigger DAG `export_to_bigquery` (or wait for `@daily`). Proof: BigQuery console → `aml_analytics` tables with row counts.
+
+**GCS retention:** after each successful sync the DAG deletes staging Parquet under `aml_gold/` older than `GCS_RETENTION_DAYS` (default **7**). BigQuery tables stay bounded via `WRITE_TRUNCATE` (daily overwrite, no append growth). Bucket lifecycle (same 7-day delete) is also declared in [`infra/terraform`](infra/terraform) for IaC.
+
+### Terraform (thin — BigQuery / GCS / IAM)
+
+See [`infra/terraform/README.md`](infra/terraform/README.md). Apply from your laptop after `gcloud auth application-default login` — imports the console-created dataset/bucket, then manages lifecycle + least-privilege IAM. Not full-cloud IaC.
 
 ---
 

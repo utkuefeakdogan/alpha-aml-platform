@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -33,6 +33,9 @@ GOLD_TABLES: tuple[str, ...] = (
 
 # dbt custom schema on Postgres becomes {target_schema}_{custom} → aml_gold
 GOLD_SCHEMA = os.getenv("GOLD_SCHEMA", "aml_gold")
+# Staging Parquet retention (Object Admin can delete objects; bucket lifecycle
+# needs stronger IAM — so we prune in-process after each successful sync).
+GCS_RETENTION_DAYS = int(os.getenv("GCS_RETENTION_DAYS", "7"))
 
 
 def _pg_engine():
@@ -109,6 +112,43 @@ def _export_one(
     }
 
 
+def _prune_gcs_staging(
+    gcs: storage.Client,
+    bucket_name: str,
+    *,
+    retention_days: int = GCS_RETENTION_DAYS,
+    prefix: str = "aml_gold/",
+) -> dict:
+    """Delete staging Parquet objects older than retention_days.
+
+    Uses object-level delete (works with roles/storage.objectAdmin). A bucket
+    lifecycle rule is nicer long-term and is managed in Terraform when IAM
+    allows storage.buckets.update.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+    bucket = gcs.bucket(bucket_name)
+    deleted = 0
+    kept = 0
+    for blob in bucket.list_blobs(prefix=prefix):
+        updated = blob.updated
+        if updated is not None and updated.tzinfo is None:
+            updated = updated.replace(tzinfo=timezone.utc)
+        if updated is not None and updated < cutoff:
+            blob.delete()
+            deleted += 1
+            logger.info("Pruned stale staging object %s (updated %s)", blob.name, updated)
+        else:
+            kept += 1
+    summary = {
+        "prefix": prefix,
+        "retention_days": retention_days,
+        "deleted": deleted,
+        "kept": kept,
+    }
+    logger.info("GCS staging prune: %s", summary)
+    return summary
+
+
 def run_export(tables: tuple[str, ...] | None = None) -> dict:
     """Export Gold tables. Raises with a clear message if credentials/env missing."""
     cfg = _require_env("GCP_PROJECT", "GCS_BUCKET", "BQ_DATASET")
@@ -148,12 +188,15 @@ def run_export(tables: tuple[str, ...] | None = None) -> dict:
             )
         )
 
+    prune = _prune_gcs_staging(gcs, bucket_name)
+
     summary = {
         "run_id": run_id,
         "project": project,
         "dataset": dataset_id,
         "bucket": bucket_name,
         "tables": results,
+        "gcs_prune": prune,
         "status": "ok",
     }
     logger.info("Gold → BigQuery export complete: %s", summary)

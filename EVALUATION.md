@@ -68,7 +68,7 @@ Caddy reverse proxy terminates HTTPS in front of the dashboard.
 - **Scale the stream** — broadcast/cache the customer table and move the per-batch behavior overwrite out of the stream to clear Spark backpressure; partition the Kafka topic and move from `local[2]` toward a real executor/cluster.
 - **Tighten lifecycle** — prune `account_window_metrics` by `window_start` of closed windows + `VACUUM`, and bound `pipeline_metrics`.
 - **Engineering rigor** — GitHub Actions CI already runs **ruff** + **`dbt parse`** on every push/PR; next steps are a small `pytest` suite and (optionally) `dbt test` against a CI Postgres service.
-- **Cloud analytics bridge** — scheduled Gold sync to BigQuery (Postgres → Parquet → GCS → BQ) via Airflow DAG `export_to_bigquery`; thin Terraform for dataset/IAM is next.
+- **Cloud analytics bridge** — scheduled Gold sync to BigQuery (Postgres → Parquet → GCS → BQ) via Airflow DAG `export_to_bigquery`; staging Parquet pruned after 7 days; thin Terraform under `infra/terraform` for dataset/bucket/IAM.
 - **Richer ML** — accumulate alert labels over time, add a feature store and drift monitoring.
 - **Hardening** — move secrets to Vault / Oracle Secrets and rotate the DB password.
 
