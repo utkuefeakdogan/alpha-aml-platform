@@ -128,6 +128,7 @@ def _architecture() -> None:
         <div class='arch-sidecar'>
             <div class='arch-sidecar-item'>{t('overview.arch.side1')}</div>
             <div class='arch-sidecar-item'>{t('overview.arch.side2')}</div>
+            <div class='arch-sidecar-item'>{t('overview.arch.side3')}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -233,7 +234,7 @@ def _engineering() -> None:
         f"<div class='ob-section-sub'>{t('overview.eng.sub')}</div>",
         unsafe_allow_html=True,
     )
-    icons = ["🧮", "⚡", "🔁", "🛡️", "♻️", "🧊"]
+    icons = ["🧮", "⚡", "🔁", "🛡️", "♻️", "🧊", "☁️"]
     blocks = [
         {
             "icon": icon,
@@ -280,11 +281,12 @@ def _technologies() -> None:
         ("ingestion", "Python · Faker · Apache Kafka"),
         ("streaming", "Apache Spark — Structured Streaming"),
         ("storage", "PostgreSQL"),
-        ("transform", "dbt (staging → gold models)"),
+        ("transform", "dbt (staging → gold) · BigQuery export"),
         ("orchestration", "Apache Airflow"),
         ("serving", "Streamlit"),
         ("ai", "GenAI / LLM (SAR drafting)"),
-        ("platform", "Docker Compose · Oracle Cloud VM"),
+        ("cloud", "BigQuery · GCS · Terraform (thin IaC)"),
+        ("platform", "Docker Compose · Oracle Cloud VM (6 GB)"),
     ]
     html = "".join(
         f"<div class='layer-row'><div class='layer-name'>{t(f'overview.layer.{key}')}</div>"

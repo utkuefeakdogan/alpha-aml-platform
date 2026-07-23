@@ -98,7 +98,9 @@ make down    # stop everything (data persists in volumes)
 | Airflow | http://localhost:8080 (admin / admin, after `make ops`) |
 | Postgres / Kafka | internal only — no host port (`docker exec … psql`) |
 
-**RAM budget:** ZK + Kafka + Postgres ≈ 2.2 GB (`core`) · generator + SAR + Streamlit ≈ 0.9 GB and Spark ≈ 1.5 GB (`app`) · Airflow ≈ 1.2 GB (`ops`). Stopping the stack when idle frees almost all of it; data survives in the `pgdata` volume.
+**RAM budget (6 GB host):** ZK + Kafka + Postgres ≈ 2.2 GB (`core`) · generator + SAR + Streamlit ≈ 0.9 GB and Spark ≈ 1.5 GB (`app`) · Airflow ≈ 1.2 GB (`ops`). Stopping the stack when idle frees almost all of it; data survives in the `pgdata` volume.
+
+**Capacity snapshot (Jul 2026, full `core`+`app`+`ops`+`edge`):** ~2.9 GiB RAM available of 5.8 GiB, ~1.5 GiB swap in use (acceptable under Airflow+Spark); root disk **~60%** of 45 GB (~18 GB free). Docker images/cache hold ~3–5 GB reclaimable without touching volumes. GCS staging ~1.3 MB and BigQuery Gold tables stay tiny under free-tier limits — cloud bridge growth is **off-VM**.
 
 ---
 

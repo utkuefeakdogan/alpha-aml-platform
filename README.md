@@ -172,7 +172,7 @@ Daily Airflow DAG `export_to_bigquery` copies Postgres **Gold** tables to BigQue
 
 ### Terraform (thin — BigQuery / GCS / IAM)
 
-See [`infra/terraform/README.md`](infra/terraform/README.md). Apply from your laptop after `gcloud auth application-default login` — imports the console-created dataset/bucket, then manages lifecycle + least-privilege IAM. Not full-cloud IaC.
+See [`infra/terraform/README.md`](infra/terraform/README.md). Apply **on this Oracle VM** (`gcloud auth login` + Terraform) — imports the console-created dataset/bucket, then manages lifecycle + least-privilege IAM. Not full-cloud IaC; BQ/GCS storage sits off-VM and does not pressure the 6 GB / 45 GB host.
 
 ---
 

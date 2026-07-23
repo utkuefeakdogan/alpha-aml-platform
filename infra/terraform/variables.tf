@@ -29,7 +29,8 @@ variable "gcs_bucket" {
 
 variable "gcs_location" {
   type        = string
-  default     = "EUROPE-WEST1"
+  description = "Must match the existing bucket (multi-region EU, same as BQ)"
+  default     = "EU"
 }
 
 variable "gcs_retention_days" {
